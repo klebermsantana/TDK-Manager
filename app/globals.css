@@ -23,6 +23,14 @@
 .dialog .form label{color:#263750;font-size:13px;font-weight:700}
 .dialog .form input,.dialog .form select{background:#fff!important;color:var(--text)!important;border-color:#d7e0ea!important}
 .dialog .form input:focus,.dialog .form select:focus{border-color:var(--blue)!important;box-shadow:0 0 0 3px #1478ff18!important}
-.dialog [data-slot="dialog-close"]{top:18px!important;right:18px!important;width:34px;height:34px;padding:0;background:#e8f1fb!important;color:#294766!important;border-radius:9px!important;opacity:1!important}
-.dialog [data-slot="dialog-close"]:hover{background:#dbeaf9!important;color:#102f50!important}
+.dialog .save-button{display:flex!important;align-items:center!important;justify-content:center!important;min-height:46px!important;margin-top:2px;background:linear-gradient(135deg,#126fe8,#084fae)!important;color:#fff!important;border:1px solid #08499f!important;border-radius:10px!important;font-size:14px!important;font-weight:800!important;box-shadow:0 8px 18px rgba(10,91,190,.28)!important;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,filter .18s ease!important}
+.dialog .save-button:hover{filter:brightness(.94);transform:translateY(-1px);box-shadow:0 10px 22px rgba(10,76,158,.34)!important}
+.dialog .save-button:active{transform:translateY(0);box-shadow:0 4px 10px rgba(10,76,158,.25)!important}
+.dialog .save-button:focus-visible{outline:3px solid rgba(20,120,255,.25)!important;outline-offset:2px!important}
+.dialog .save-button:disabled{cursor:not-allowed;filter:saturate(.55);opacity:.62;transform:none;box-shadow:none!important}
+.dialog .save-button svg{width:17px;height:17px}
+.dialog [data-slot="dialog-close"]{top:18px!important;right:18px!important;display:grid!important;place-items:center!important;width:36px!important;height:36px!important;padding:0!important;line-height:0!important;background:#dceaf8!important;color:#214366!important;border:1px solid #c9dced!important;border-radius:10px!important;opacity:1!important;box-shadow:0 2px 6px rgba(10,44,81,.08)!important;cursor:pointer;transition:background .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease!important}
+.dialog [data-slot="dialog-close"] svg{display:block!important;width:18px!important;height:18px!important;margin:0!important;transform:none!important}
+.dialog [data-slot="dialog-close"]:hover{background:#174d83!important;color:#fff!important;border-color:#174d83!important;transform:scale(1.04);box-shadow:0 5px 12px rgba(10,44,81,.22)!important}
+.dialog [data-slot="dialog-close"]:focus-visible{outline:3px solid rgba(20,120,255,.25)!important;outline-offset:2px!important}
 @media(max-width:600px){.dialog [data-slot="dialog-header"]{padding:21px 20px 16px;padding-right:62px}.dialog .form{padding:19px 20px 22px;max-height:calc(100vh - 170px)}.dialog [data-slot="dialog-close"]{top:15px!important;right:15px!important}}

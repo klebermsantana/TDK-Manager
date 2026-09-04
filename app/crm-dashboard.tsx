@@ -814,7 +814,11 @@ function SaveButton({
   children: React.ReactNode;
 }) {
   return (
-    <Button type="submit" disabled={saving || disabled}>
+    <Button
+      type="submit"
+      className="save-button"
+      disabled={saving || disabled}
+    >
       {saving ? (
         <>
           <Loader2 className="spin" /> Salvando...
