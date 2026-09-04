@@ -46,8 +46,22 @@ export async function PATCH(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const id = Number(payload.id); const status = String(payload.status ?? "");
     if (!id || !statuses.has(status)) return Response.json({ error: "Status inválido." }, { status: 400 });
-    const [proposal] = await getDb().update(proposals).set({ status, updatedAt: new Date().toISOString() }).where(eq(proposals.id, id)).returning();
+    if (!Array.isArray(payload.items)) {
+      const [proposal] = await getDb().update(proposals).set({ status, updatedAt: new Date().toISOString() }).where(eq(proposals.id, id)).returning();
+      if (!proposal) return Response.json({ error: "Proposta não encontrada." }, { status: 404 });
+      return Response.json({ proposal });
+    }
+    const opportunityId = Number(payload.opportunityId);
+    const discount = Number(payload.discount ?? 0);
+    const items = (payload.items as Record<string, unknown>[]).map((item) => ({ category: String(item.category), description: String(item.description ?? "").trim(), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })).filter((item) => item.description && ["material", "servico"].includes(item.category) && item.quantity > 0 && item.unitPrice >= 0);
+    if (!opportunityId || !items.length || !Number.isFinite(discount) || discount < 0) return Response.json({ error: "Revise os dados e inclua ao menos um item válido." }, { status: 400 });
+    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    if (discount > subtotal) return Response.json({ error: "O desconto não pode superar o subtotal." }, { status: 400 });
+    const [proposal] = await getDb().update(proposals).set({ opportunityId, status, validUntil: payload.validUntil ? String(payload.validUntil) : null, discount, subtotal, total: subtotal - discount, notes: String(payload.notes ?? "").trim() || null, updatedAt: new Date().toISOString() }).where(eq(proposals.id, id)).returning();
     if (!proposal) return Response.json({ error: "Proposta não encontrada." }, { status: 404 });
-    return Response.json({ proposal });
+    await getDb().delete(proposalItems).where(eq(proposalItems.proposalId, id));
+    const createdItems = await getDb().insert(proposalItems).values(items.map((item) => ({ ...item, proposalId: id, total: item.quantity * item.unitPrice }))).returning();
+    const [opportunity] = await getDb().select({ title: opportunities.title, companyName: opportunities.companyName }).from(opportunities).where(eq(opportunities.id, opportunityId)).limit(1);
+    return Response.json({ proposal: { ...proposal, opportunityTitle: opportunity?.title ?? "Oportunidade", companyName: opportunity?.companyName ?? "Empresa", items: createdItems } });
   } catch { return Response.json({ error: "Não foi possível atualizar a proposta." }, { status: 500 }); }
 }

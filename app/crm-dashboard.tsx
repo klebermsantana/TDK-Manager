@@ -180,6 +180,8 @@ export default function CrmDashboard({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "company" | "contact" | "opportunity"; id: number; name: string } | null>(null);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<number | null>(null);
+  const [selectedProposalId, setSelectedProposalId] = useState<number | null>(null);
+  const [editingProposalId, setEditingProposalId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [opportunityForm, setOpportunityForm] = useState({
     title: "",
@@ -290,6 +292,7 @@ export default function CrmDashboard({
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
     if (kind === "proposal") setProposalForm({ opportunityId: "", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
+    if (kind === "proposal") setEditingProposalId(null);
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -487,11 +490,18 @@ export default function CrmDashboard({
   async function createProposal(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch("/api/proposals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...proposalForm, opportunityId: Number(proposalForm.opportunityId), discount: Number(proposalForm.discount), items: proposalForm.items.map((item) => ({ ...item, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })) }) });
+      const currentProposal = proposals.find((item) => item.id === editingProposalId);
+      const response = await fetch("/api/proposals", { method: editingProposalId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...proposalForm, id: editingProposalId, status: currentProposal?.status ?? "rascunho", opportunityId: Number(proposalForm.opportunityId), discount: Number(proposalForm.discount), items: proposalForm.items.map((item) => ({ ...item, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })) }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
-      setProposals((current) => [data.proposal, ...current]); setDialog(null);
+      setProposals((current) => editingProposalId ? current.map((item) => item.id === editingProposalId ? data.proposal : item) : [data.proposal, ...current]); setDialog(null); setEditingProposalId(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível cadastrar a proposta."); }
     finally { setSaving(false); }
+  }
+  function editProposal(proposal: ProposalRecord) {
+    setEditingProposalId(proposal.id);
+    setProposalForm({ opportunityId: String(proposal.opportunityId), validUntil: proposal.validUntil ?? "", discount: String(proposal.discount), notes: proposal.notes ?? "", items: proposal.items.map((item) => ({ category: item.category, description: item.description, quantity: item.quantity, unitPrice: item.unitPrice })) });
+    setSelectedProposalId(null);
+    setDialog("proposal");
   }
   async function changeProposalStatus(id: number, status: string) {
     const previous = proposals; setProposals((current) => current.map((item) => item.id === id ? { ...item, status } : item));
@@ -569,6 +579,7 @@ export default function CrmDashboard({
         : "Nova oportunidade";
   const selectedOpportunity = items.find((item) => item.id === selectedOpportunityId) ?? null;
   const selectedActivities = selectedOpportunity ? activities.filter((activity) => activity.opportunityId === selectedOpportunity.id) : [];
+  const selectedProposal = proposals.find((proposal) => proposal.id === selectedProposalId) ?? null;
 
   return (
     <div className="app-shell">
@@ -708,7 +719,7 @@ export default function CrmDashboard({
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
           ) : view === "proposals" ? (
-            <Proposals proposals={proposals} add={() => openNew("proposal")} changeStatus={changeProposalStatus} />
+            <Proposals proposals={proposals} add={() => openNew("proposal")} inspect={(proposal) => setSelectedProposalId(proposal.id)} changeStatus={changeProposalStatus} />
           ) : view === "activities" ? (
             <Activities activities={activities} add={() => openNew("activity")} toggle={toggleActivity} remove={deleteActivity} />
           ) : view === "companies" ? (
@@ -731,6 +742,11 @@ export default function CrmDashboard({
         </div>
       </main>
 
+      <Sheet open={Boolean(selectedProposal)} onOpenChange={(open) => { if (!open) setSelectedProposalId(null); }}>
+        <SheetContent className="opportunity-sheet proposal-sheet">
+          {selectedProposal && <><SheetHeader className="opportunity-sheet-head"><span className="dialog-kicker">PROPOSTA COMERCIAL</span><SheetTitle>{selectedProposal.number}</SheetTitle><SheetDescription>{selectedProposal.companyName} · {selectedProposal.opportunityTitle}</SheetDescription></SheetHeader><div className="opportunity-sheet-body"><div className="opportunity-value"><span>Valor total</span><strong>{money(selectedProposal.total)}</strong></div><div className="proposal-view-meta"><span>Status<strong>{selectedProposal.status}</strong></span><span>Validade<strong>{selectedProposal.validUntil ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedProposal.validUntil}T12:00:00Z`)) : "Não informada"}</strong></span><span>Subtotal<strong>{money(selectedProposal.subtotal)}</strong></span><span>Desconto<strong>{money(selectedProposal.discount)}</strong></span></div><Button onClick={() => editProposal(selectedProposal)}><Pencil /> Editar proposta</Button><section className="proposal-view-items"><h3>Itens da proposta</h3>{selectedProposal.items.map((item, index) => <article key={item.id ?? index}><div><span>{item.category === "material" ? "Material" : "Serviço"}</span><strong>{item.description}</strong><small>{Number(item.quantity)} × {money(Number(item.unitPrice))}</small></div><b>{money(Number(item.total ?? Number(item.quantity) * Number(item.unitPrice)))}</b></article>)}</section>{selectedProposal.notes && <div className="proposal-view-notes"><span>Observações</span><p>{selectedProposal.notes}</p></div>}</div></>}
+        </SheetContent>
+      </Sheet>
       <Sheet open={Boolean(selectedOpportunity)} onOpenChange={(open) => { if (!open) setSelectedOpportunityId(null); }}>
         <SheetContent className="opportunity-sheet">
           {selectedOpportunity && <>
@@ -1020,15 +1036,15 @@ export default function CrmDashboard({
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={dialog === "proposal"} onOpenChange={(open) => setDialog(open ? "proposal" : null)}>
+      <Dialog open={dialog === "proposal"} onOpenChange={(open) => { setDialog(open ? "proposal" : null); if (!open) setEditingProposalId(null); }}>
         <DialogContent className="dialog proposal-dialog">
-          <DialogHeader><span className="dialog-kicker">PROPOSTA COMERCIAL</span><DialogTitle>Nova proposta</DialogTitle><DialogDescription>Componha materiais, serviços e condições comerciais.</DialogDescription></DialogHeader>
+          <DialogHeader><span className="dialog-kicker">PROPOSTA COMERCIAL</span><DialogTitle>{editingProposalId ? "Editar proposta" : "Nova proposta"}</DialogTitle><DialogDescription>{editingProposalId ? "Atualize os itens, valores e condições comerciais." : "Componha materiais, serviços e condições comerciais."}</DialogDescription></DialogHeader>
           <form onSubmit={createProposal} className="form proposal-form">
             <div className="form-split"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => setProposalForm({ ...proposalForm, opportunityId: event.target.value })} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
             <div className="proposal-items-head"><strong>Itens da proposta</strong><button type="button" onClick={() => setProposalForm({ ...proposalForm, items: [...proposalForm.items, { category: "material", description: "", quantity: 1, unitPrice: "" }] })}><Plus /> Adicionar item</button></div>
             <div className="proposal-items">{proposalForm.items.map((item, index) => <div className="proposal-item" key={index}><select value={item.category} aria-label="Categoria" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, category: event.target.value as "material" | "servico" }; setProposalForm({ ...proposalForm, items: next }); }}><option value="material">Material</option><option value="servico">Serviço</option></select><Input value={item.description} aria-label="Descrição" placeholder="Descrição do item" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, description: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0.01" step="0.01" value={item.quantity} aria-label="Quantidade" placeholder="Qtd." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, quantity: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0" step="0.01" value={item.unitPrice} aria-label="Valor unitário" placeholder="Valor unit." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, unitPrice: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><strong>{money(Number(item.quantity) * Number(item.unitPrice || 0))}</strong><button type="button" aria-label="Remover item" disabled={proposalForm.items.length === 1} onClick={() => setProposalForm({ ...proposalForm, items: proposalForm.items.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 /></button></div>)}</div>
             <div className="proposal-bottom"><Field label="Observações"><Textarea value={proposalForm.notes} onChange={(event) => setProposalForm({ ...proposalForm, notes: event.target.value })} placeholder="Condições, prazo de entrega ou escopo" /></Field><div><Field label="Desconto (R$)"><Input type="number" min="0" step="0.01" value={proposalForm.discount} onChange={(event) => setProposalForm({ ...proposalForm, discount: event.target.value })} /></Field><div className="proposal-total"><span>Total</span><strong>{money(Math.max(0, proposalForm.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice || 0), 0) - Number(proposalForm.discount || 0)))}</strong></div></div></div>
-            <SaveButton saving={saving} disabled={!items.length}>Criar proposta</SaveButton>
+            <SaveButton saving={saving} disabled={!items.length}>{editingProposalId ? "Salvar alterações" : "Criar proposta"}</SaveButton>
           </form>
         </DialogContent>
       </Dialog>
@@ -1413,10 +1429,10 @@ function Contacts({
     </div>
   );
 }
-function Proposals({ proposals, add, changeStatus }: { proposals: ProposalRecord[]; add: () => void; changeStatus: (id: number, status: string) => void }) {
+function Proposals({ proposals, add, inspect, changeStatus }: { proposals: ProposalRecord[]; add: () => void; inspect: (proposal: ProposalRecord) => void; changeStatus: (id: number, status: string) => void }) {
   const labels: Record<string, string> = { rascunho: "Rascunho", enviada: "Enviada", aprovada: "Aprovada", recusada: "Recusada", expirada: "Expirada" };
   if (!proposals.length) return <Empty icon={<FileText />} title="Nenhuma proposta cadastrada" text="Crie uma proposta com materiais e serviços vinculada a uma oportunidade." action="Criar proposta" onClick={add} />;
-  return <div className="proposal-grid">{proposals.map((proposal) => <article className="proposal-card" key={proposal.id}><div className="proposal-card-head"><span><FileText /></span><div><small>{proposal.number}</small><h2>{proposal.companyName}</h2></div><select value={proposal.status} aria-label="Status da proposta" onChange={(event) => changeStatus(proposal.id, event.target.value)}><option value="rascunho">Rascunho</option><option value="enviada">Enviada</option><option value="aprovada">Aprovada</option><option value="recusada">Recusada</option><option value="expirada">Expirada</option></select></div><p>{proposal.opportunityTitle}</p><div className="proposal-breakdown"><span>Materiais <strong>{money(proposal.items.filter((item) => item.category === "material").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span><span>Serviços <strong>{money(proposal.items.filter((item) => item.category === "servico").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span></div><div className="proposal-card-total"><span>{labels[proposal.status]}</span><div><small>{proposal.discount ? `Desconto: ${money(proposal.discount)}` : "Sem desconto"}</small><strong>{money(proposal.total)}</strong></div></div></article>)}</div>;
+  return <div className="proposal-grid">{proposals.map((proposal) => <article className="proposal-card" key={proposal.id} onClick={() => inspect(proposal)}><div className="proposal-card-head"><span><FileText /></span><div><small>{proposal.number}</small><h2>{proposal.companyName}</h2></div><select value={proposal.status} aria-label="Status da proposta" onClick={(event) => event.stopPropagation()} onChange={(event) => changeStatus(proposal.id, event.target.value)}><option value="rascunho">Rascunho</option><option value="enviada">Enviada</option><option value="aprovada">Aprovada</option><option value="recusada">Recusada</option><option value="expirada">Expirada</option></select></div><p>{proposal.opportunityTitle}</p><div className="proposal-breakdown"><span>Materiais <strong>{money(proposal.items.filter((item) => item.category === "material").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span><span>Serviços <strong>{money(proposal.items.filter((item) => item.category === "servico").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span></div><div className="proposal-card-total"><span>{labels[proposal.status]}</span><div><small>{proposal.discount ? `Desconto: ${money(proposal.discount)}` : "Sem desconto"}</small><strong>{money(proposal.total)}</strong></div></div></article>)}</div>;
 }
 function Activities({ activities, add, toggle, remove }: { activities: ActivityRecord[]; add: () => void; toggle: (activity: ActivityRecord) => void; remove: (activity: ActivityRecord) => void }) {
   const typeLabels: Record<string, string> = { ligacao: "Ligação", reuniao: "Reunião", visita: "Visita técnica", proposta: "Envio de proposta", retorno: "Retorno", outro: "Outro" };
