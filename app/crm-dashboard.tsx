@@ -17,17 +17,29 @@ import {
   Mail,
   Menu,
   MoreHorizontal,
+  Pencil,
   Phone,
   Plus,
   Search,
   Settings,
   Target,
   TrendingUp,
+  Trash2,
   Users,
   X,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +61,7 @@ type Opportunity = {
   owner: string;
   initials: string;
   due: string;
+  expectedCloseAt: string | null;
   stage: string;
   temperature: "hot" | "warm" | "cold";
 };
@@ -121,6 +134,7 @@ const fromApi = (item: ApiOpportunity): Opportunity => ({
   owner: item.ownerName,
   initials: initials(item.ownerName),
   due: dueLabel(item.expectedCloseAt),
+  expectedCloseAt: item.expectedCloseAt,
   stage: item.stage,
   temperature: item.temperature,
 });
@@ -142,6 +156,8 @@ export default function CrmDashboard({
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: "company" | "contact" | "opportunity"; id: number; name: string } | null>(null);
   const [error, setError] = useState("");
   const [opportunityForm, setOpportunityForm] = useState({
     title: "",
@@ -239,6 +255,28 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
+  function openNew(kind: "company" | "contact" | "opportunity") {
+    setEditingId(null);
+    if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
+    if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
+    if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "" });
+    setDialog(kind);
+  }
+  function editCompany(company: Company) {
+    setEditingId(company.id);
+    setCompanyForm({ name: company.name, document: company.document ?? "", segment: company.segment ?? "" });
+    setDialog("company");
+  }
+  function editContact(contact: ContactRecord) {
+    setEditingId(contact.id);
+    setContactForm({ name: contact.name, companyId: String(contact.companyId), role: contact.role ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });
+    setDialog("contact");
+  }
+  function editOpportunity(item: Opportunity) {
+    setEditingId(item.id);
+    setOpportunityForm({ title: item.title, companyId: String(item.companyId ?? ""), value: String(item.value), expectedCloseAt: item.expectedCloseAt ?? "" });
+    setDialog("opportunity");
+  }
   async function move(stage: string) {
     const id = dragId;
     if (!id) return;
@@ -275,9 +313,10 @@ export default function CrmDashboard({
     setError("");
     try {
       const response = await fetch("/api/opportunities", {
-        method: "POST",
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: editingId,
           title: opportunityForm.title,
           companyId: company.id,
           companyName: company.name,
@@ -287,7 +326,9 @@ export default function CrmDashboard({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setItems((current) => [fromApi(data.opportunity), ...current]);
+      setItems((current) => editingId
+        ? current.map((item) => item.id === editingId ? fromApi(data.opportunity) : item)
+        : [fromApi(data.opportunity), ...current]);
       setOpportunityForm({
         title: "",
         companyId: "",
@@ -311,15 +352,17 @@ export default function CrmDashboard({
     setError("");
     try {
       const response = await fetch("/api/companies", {
-        method: "POST",
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(companyForm),
+        body: JSON.stringify({ ...companyForm, id: editingId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setCompanies((current) =>
-        [...current, data.company].sort((a, b) => a.name.localeCompare(b.name)),
-      );
+      setCompanies((current) => (editingId
+        ? current.map((company) => company.id === editingId ? data.company : company)
+        : [...current, data.company]).sort((a, b) => a.name.localeCompare(b.name)));
+      setContacts((current) => current.map((contact) => contact.companyId === data.company.id ? { ...contact, companyName: data.company.name } : contact));
+      setItems((current) => current.map((item) => item.companyId === data.company.id ? { ...item, company: data.company.name } : item));
       setCompanyForm({ name: "", document: "", segment: "" });
       setDialog(null);
     } catch (reason) {
@@ -338,18 +381,19 @@ export default function CrmDashboard({
     setError("");
     try {
       const response = await fetch("/api/contacts", {
-        method: "POST",
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...contactForm,
+          id: editingId,
           companyId: Number(contactForm.companyId),
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setContacts((current) =>
-        [...current, data.contact].sort((a, b) => a.name.localeCompare(b.name)),
-      );
+      setContacts((current) => (editingId
+        ? current.map((contact) => contact.id === editingId ? data.contact : contact)
+        : [...current, data.contact]).sort((a, b) => a.name.localeCompare(b.name)));
       setContactForm({
         name: "",
         companyId: "",
@@ -364,6 +408,26 @@ export default function CrmDashboard({
           ? reason.message
           : "Não foi possível cadastrar o contato.",
       );
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    setError("");
+    try {
+      const endpoint = deleteTarget.kind === "company" ? "companies" : deleteTarget.kind === "contact" ? "contacts" : "opportunities";
+      const response = await fetch(`/api/${endpoint}?id=${deleteTarget.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (deleteTarget.kind === "company") setCompanies((current) => current.filter((item) => item.id !== deleteTarget.id));
+      if (deleteTarget.kind === "contact") setContacts((current) => current.filter((item) => item.id !== deleteTarget.id));
+      if (deleteTarget.kind === "opportunity") setItems((current) => current.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível excluir o cadastro.");
+      setDeleteTarget(null);
     } finally {
       setSaving(false);
     }
@@ -393,10 +457,10 @@ export default function CrmDashboard({
   };
   const primaryAction =
     view === "companies"
-      ? () => setDialog("company")
+      ? () => openNew("company")
       : view === "contacts"
-        ? () => setDialog("contact")
-        : () => setDialog("opportunity");
+        ? () => openNew("contact")
+        : () => openNew("opportunity");
   const primaryLabel =
     view === "companies"
       ? "Nova empresa"
@@ -532,19 +596,25 @@ export default function CrmDashboard({
               items={filteredItems}
               drag={setDragId}
               move={move}
-              add={() => setDialog("opportunity")}
+              add={() => openNew("opportunity")}
+              edit={editOpportunity}
+              remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
           ) : view === "companies" ? (
             <Companies
               companies={filteredCompanies}
               contacts={contacts}
               opportunities={items}
-              add={() => setDialog("company")}
+              add={() => openNew("company")}
+              edit={editCompany}
+              remove={(company) => setDeleteTarget({ kind: "company", id: company.id, name: company.name })}
             />
           ) : (
             <Contacts
               contacts={filteredContacts}
-              add={() => setDialog("contact")}
+              add={() => openNew("contact")}
+              edit={editContact}
+              remove={(contact) => setDeleteTarget({ kind: "contact", id: contact.id, name: contact.name })}
             />
           )}
         </div>
@@ -552,14 +622,14 @@ export default function CrmDashboard({
 
       <Dialog
         open={dialog === "opportunity"}
-        onOpenChange={(open) => setDialog(open ? "opportunity" : null)}
+        onOpenChange={(open) => { setDialog(open ? "opportunity" : null); if (!open) setEditingId(null); }}
       >
         <DialogContent className="dialog">
           <DialogHeader>
             <span className="dialog-kicker">CADASTRO COMERCIAL</span>
-            <DialogTitle>Nova oportunidade</DialogTitle>
+            <DialogTitle>{editingId ? "Editar oportunidade" : "Nova oportunidade"}</DialogTitle>
             <DialogDescription>
-              Registre uma oportunidade e vincule-a à empresa responsável.
+              {editingId ? "Atualize os dados comerciais desta oportunidade." : "Registre uma oportunidade e vincule-a à empresa responsável."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createOpportunity} className="form">
@@ -628,21 +698,21 @@ export default function CrmDashboard({
               />
             </Field>
             <SaveButton saving={saving} disabled={!companies.length}>
-              Cadastrar oportunidade
+              {editingId ? "Salvar alterações" : "Cadastrar oportunidade"}
             </SaveButton>
           </form>
         </DialogContent>
       </Dialog>
       <Dialog
         open={dialog === "company"}
-        onOpenChange={(open) => setDialog(open ? "company" : null)}
+        onOpenChange={(open) => { setDialog(open ? "company" : null); if (!open) setEditingId(null); }}
       >
         <DialogContent className="dialog">
           <DialogHeader>
             <span className="dialog-kicker">CARTEIRA DE CLIENTES</span>
-            <DialogTitle>Nova empresa</DialogTitle>
+            <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
             <DialogDescription>
-              Cadastre os dados principais do cliente ou prospect.
+              {editingId ? "Atualize os dados principais desta empresa." : "Cadastre os dados principais do cliente ou prospect."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createCompany} className="form">
@@ -680,20 +750,20 @@ export default function CrmDashboard({
                 placeholder="Ex.: Hotelaria, Saúde, Varejo"
               />
             </Field>
-            <SaveButton saving={saving}>Cadastrar empresa</SaveButton>
+            <SaveButton saving={saving}>{editingId ? "Salvar alterações" : "Cadastrar empresa"}</SaveButton>
           </form>
         </DialogContent>
       </Dialog>
       <Dialog
         open={dialog === "contact"}
-        onOpenChange={(open) => setDialog(open ? "contact" : null)}
+        onOpenChange={(open) => { setDialog(open ? "contact" : null); if (!open) setEditingId(null); }}
       >
         <DialogContent className="dialog">
           <DialogHeader>
             <span className="dialog-kicker">RELACIONAMENTO</span>
-            <DialogTitle>Novo contato</DialogTitle>
+            <DialogTitle>{editingId ? "Editar contato" : "Novo contato"}</DialogTitle>
             <DialogDescription>
-              Associe uma pessoa de contato à empresa correspondente.
+              {editingId ? "Atualize os dados e o vínculo deste contato." : "Associe uma pessoa de contato à empresa correspondente."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createContact} className="form">
@@ -763,11 +833,27 @@ export default function CrmDashboard({
               </Field>
             </div>
             <SaveButton saving={saving} disabled={!companies.length}>
-              Cadastrar contato
+              {editingId ? "Salvar alterações" : "Cadastrar contato"}
             </SaveButton>
           </form>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent className="confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir cadastro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? `“${deleteTarget.name}” será removido permanentemente. Esta ação não pode ser desfeita.` : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="delete-button" onClick={confirmDelete} disabled={saving}>
+              {saving ? "Excluindo..." : "Excluir definitivamente"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -900,11 +986,15 @@ function Pipeline({
   drag,
   move,
   add,
+  edit,
+  remove,
 }: {
   items: Opportunity[];
   drag: (id: number) => void;
   move: (stage: string) => void;
   add: () => void;
+  edit: (item: Opportunity) => void;
+  remove: (item: Opportunity) => void;
 }) {
   return (
     <>
@@ -965,9 +1055,10 @@ function Pipeline({
                             ? "Média"
                             : "Baixa"}
                       </span>
-                      <button aria-label="Opções">
-                        <MoreHorizontal />
-                      </button>
+                      <span className="record-actions">
+                        <button aria-label={`Editar ${card.title}`} onClick={() => edit(card)}><Pencil /></button>
+                        <button className="danger" aria-label={`Excluir ${card.title}`} onClick={() => remove(card)}><Trash2 /></button>
+                      </span>
                     </div>
                     <h3>{card.title}</h3>
                     <p>
@@ -1002,11 +1093,15 @@ function Companies({
   contacts,
   opportunities,
   add,
+  edit,
+  remove,
 }: {
   companies: Company[];
   contacts: ContactRecord[];
   opportunities: Opportunity[];
   add: () => void;
+  edit: (company: Company) => void;
+  remove: (company: Company) => void;
 }) {
   if (!companies.length)
     return (
@@ -1035,7 +1130,13 @@ function Companies({
               <span>
                 <Building2 />
               </span>
-              <small>{company.segment || "Segmento não informado"}</small>
+              <div className="company-meta">
+                <small>{company.segment || "Segmento não informado"}</small>
+                <span className="record-actions">
+                  <button aria-label={`Editar ${company.name}`} onClick={() => edit(company)}><Pencil /></button>
+                  <button className="danger" aria-label={`Excluir ${company.name}`} onClick={() => remove(company)}><Trash2 /></button>
+                </span>
+              </div>
             </div>
             <h2>{company.name}</h2>
             <p>{company.document || "Documento não informado"}</p>
@@ -1056,9 +1157,13 @@ function Companies({
 function Contacts({
   contacts,
   add,
+  edit,
+  remove,
 }: {
   contacts: ContactRecord[];
   add: () => void;
+  edit: (contact: ContactRecord) => void;
+  remove: (contact: ContactRecord) => void;
 }) {
   if (!contacts.length)
     return (
@@ -1077,6 +1182,7 @@ function Contacts({
         <span>Empresa</span>
         <span>Cargo</span>
         <span>Comunicação</span>
+        <span>Ações</span>
       </div>
       {contacts.map((contact) => (
         <div className="table-row" key={contact.id}>
@@ -1100,6 +1206,10 @@ function Contacts({
               </a>
             )}
             {!contact.email && !contact.phone && <small>Não informado</small>}
+          </span>
+          <span className="record-actions">
+            <button aria-label={`Editar ${contact.name}`} onClick={() => edit(contact)}><Pencil /></button>
+            <button className="danger" aria-label={`Excluir ${contact.name}`} onClick={() => remove(contact)}><Trash2 /></button>
           </span>
         </div>
       ))}

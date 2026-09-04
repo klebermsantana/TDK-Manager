@@ -44,3 +44,41 @@ export async function POST(request: Request) {
     return Response.json({ error: "Não foi possível cadastrar o contato." }, { status: 500 });
   }
 }
+
+export async function PATCH(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const payload = await request.json() as Record<string, unknown>;
+    const id = Number(payload.id);
+    const companyId = Number(payload.companyId);
+    const name = String(payload.name ?? "").trim();
+    if (!id || !companyId || !name) return Response.json({ error: "Empresa e nome do contato são obrigatórios." }, { status: 400 });
+    const [contact] = await getDb().update(contacts).set({
+      companyId,
+      name,
+      role: String(payload.role ?? "").trim() || null,
+      email: String(payload.email ?? "").trim() || null,
+      phone: String(payload.phone ?? "").trim() || null,
+    }).where(eq(contacts.id, id)).returning();
+    if (!contact) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
+    const [company] = await getDb().select({ name: companies.name }).from(companies).where(eq(companies.id, companyId)).limit(1);
+    return Response.json({ contact: { ...contact, companyName: company?.name ?? "Empresa" } });
+  } catch {
+    return Response.json({ error: "Não foi possível atualizar o contato." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const id = Number(new URL(request.url).searchParams.get("id"));
+    if (!id) return Response.json({ error: "Contato inválido." }, { status: 400 });
+    const [contact] = await getDb().delete(contacts).where(eq(contacts.id, id)).returning();
+    if (!contact) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
+    return Response.json({ success: true });
+  } catch {
+    return Response.json({ error: "Não foi possível excluir o contato." }, { status: 500 });
+  }
+}

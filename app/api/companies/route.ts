@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
-import { companies } from "@/db/schema";
+import { companies, contacts, opportunities } from "@/db/schema";
 
 export async function GET() {
   const user = await getChatGPTUser();
@@ -48,5 +48,22 @@ export async function PATCH(request: Request) {
     return Response.json({ company });
   } catch {
     return Response.json({ error: "Não foi possível atualizar a empresa." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const id = Number(new URL(request.url).searchParams.get("id"));
+    if (!id) return Response.json({ error: "Empresa inválida." }, { status: 400 });
+    const [linkedContact] = await getDb().select({ id: contacts.id }).from(contacts).where(eq(contacts.companyId, id)).limit(1);
+    const [linkedOpportunity] = await getDb().select({ id: opportunities.id }).from(opportunities).where(eq(opportunities.companyId, id)).limit(1);
+    if (linkedContact || linkedOpportunity) return Response.json({ error: "Esta empresa possui contatos ou oportunidades vinculados. Exclua os vínculos primeiro." }, { status: 409 });
+    const [company] = await getDb().delete(companies).where(eq(companies.id, id)).returning();
+    if (!company) return Response.json({ error: "Empresa não encontrada." }, { status: 404 });
+    return Response.json({ success: true });
+  } catch {
+    return Response.json({ error: "Não foi possível excluir a empresa." }, { status: 500 });
   }
 }
