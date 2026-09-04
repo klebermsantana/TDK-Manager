@@ -1,0 +1,1 @@
+ALTER TABLE `companies` ADD `preferred_price_table` text DEFAULT 'padrao' NOT NULL;

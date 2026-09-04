@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       name,
       document: String(payload.document ?? "").trim() || null,
       segment: String(payload.segment ?? "").trim() || null,
+      preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
     }).returning();
     return Response.json({ company }, { status: 201 });
   } catch {
@@ -43,6 +44,7 @@ export async function PATCH(request: Request) {
       name,
       document: String(payload.document ?? "").trim() || null,
       segment: String(payload.segment ?? "").trim() || null,
+      preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
     }).where(eq(companies.id, id)).returning();
     if (!company) return Response.json({ error: "Empresa não encontrada." }, { status: 404 });
     return Response.json({ company });

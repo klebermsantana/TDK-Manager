@@ -88,6 +88,7 @@ type Company = {
   name: string;
   document: string | null;
   segment: string | null;
+  preferredPriceTable: string;
   createdAt: string;
 };
 type ContactRecord = {
@@ -199,6 +200,7 @@ export default function CrmDashboard({
     name: "",
     document: "",
     segment: "",
+    preferredPriceTable: "padrao",
   });
   const [contactForm, setContactForm] = useState({
     name: "",
@@ -293,7 +295,7 @@ export default function CrmDashboard({
   }
   function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog") {
     setEditingId(null);
-    if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
+    if (kind === "company") setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
@@ -304,7 +306,7 @@ export default function CrmDashboard({
   }
   function editCompany(company: Company) {
     setEditingId(company.id);
-    setCompanyForm({ name: company.name, document: company.document ?? "", segment: company.segment ?? "" });
+    setCompanyForm({ name: company.name, document: company.document ?? "", segment: company.segment ?? "", preferredPriceTable: company.preferredPriceTable ?? "padrao" });
     setDialog("company");
   }
   function editContact(contact: ContactRecord) {
@@ -407,7 +409,7 @@ export default function CrmDashboard({
         : [...current, data.company]).sort((a, b) => a.name.localeCompare(b.name)));
       setContacts((current) => current.map((contact) => contact.companyId === data.company.id ? { ...contact, companyName: data.company.name } : contact));
       setItems((current) => current.map((item) => item.companyId === data.company.id ? { ...item, company: data.company.name } : item));
-      setCompanyForm({ name: "", document: "", segment: "" });
+      setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
       setDialog(null);
     } catch (reason) {
       setError(
@@ -941,6 +943,12 @@ export default function CrmDashboard({
                 placeholder="Ex.: Hotelaria, Saúde, Varejo"
               />
             </Field>
+            <Field label="Tabela de preços preferencial">
+              <select value={companyForm.preferredPriceTable} onChange={(event) => setCompanyForm({ ...companyForm, preferredPriceTable: event.target.value })}>
+                <option value="competitiva">Competitiva</option><option value="padrao">Padrão</option><option value="valor">Valor agregado</option>
+              </select>
+              <small>Será selecionada automaticamente nas novas propostas deste cliente.</small>
+            </Field>
             <SaveButton saving={saving}>{editingId ? "Salvar alterações" : "Cadastrar empresa"}</SaveButton>
           </form>
         </DialogContent>
@@ -1062,7 +1070,7 @@ export default function CrmDashboard({
         <DialogContent className="dialog proposal-dialog">
           <DialogHeader><span className="dialog-kicker">PROPOSTA COMERCIAL</span><DialogTitle>{editingProposalId ? "Editar proposta" : "Nova proposta"}</DialogTitle><DialogDescription>{editingProposalId ? "Atualize os itens, valores e condições comerciais." : "Componha materiais, serviços e condições comerciais."}</DialogDescription></DialogHeader>
           <form onSubmit={createProposal} className="form proposal-form">
-            <div className="proposal-top"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => setProposalForm({ ...proposalForm, opportunityId: event.target.value })} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Tabela de preços"><select value={proposalForm.priceTable} onChange={(event) => {const priceTable=event.target.value;setProposalForm(current=>({...current,priceTable,items:current.items.map(entry=>{const catalogItem=catalog.find(item=>item.id===entry.catalogId);return catalogItem?{...entry,unitPrice:catalogPrice(catalogItem,priceTable)}:entry;})}));}}><option value="competitiva">Competitiva</option><option value="padrao">Padrão</option><option value="valor">Valor agregado</option></select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
+            <div className="proposal-top"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => { const opportunity=items.find(item=>item.id===Number(event.target.value)); const company=companies.find(entry=>entry.id===opportunity?.companyId); const priceTable=company?.preferredPriceTable??proposalForm.priceTable; setProposalForm(current=>({...current,opportunityId:event.target.value,priceTable,items:current.items.map(entry=>{const catalogItem=catalog.find(item=>item.id===entry.catalogId);return catalogItem?{...entry,unitPrice:catalogPrice(catalogItem,priceTable)}:entry;})})); }} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Tabela de preços"><select value={proposalForm.priceTable} onChange={(event) => {const priceTable=event.target.value;setProposalForm(current=>({...current,priceTable,items:current.items.map(entry=>{const catalogItem=catalog.find(item=>item.id===entry.catalogId);return catalogItem?{...entry,unitPrice:catalogPrice(catalogItem,priceTable)}:entry;})}));}}><option value="competitiva">Competitiva</option><option value="padrao">Padrão</option><option value="valor">Valor agregado</option></select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
             <div className="proposal-items-head"><strong>Itens da proposta</strong><button type="button" onClick={() => setProposalForm({ ...proposalForm, items: [...proposalForm.items, { category: "material", description: "", quantity: 1, unitPrice: "" }] })}><Plus /> Adicionar item</button></div>
             {catalog.length ? <Field label="Selecionar do catálogo"><select defaultValue="" onChange={(event)=>{addCatalogItem(event.target.value);event.target.value="";}}><option value="">Escolha um produto ou serviço...</option>{catalog.map(item=><option key={item.id} value={item.id}>{item.category==="material"?"Material":"Serviço"} · {item.description} · {money(catalogPrice(item,proposalForm.priceTable))}</option>)}</select></Field>:null}
             <div className="proposal-items">{proposalForm.items.map((item, index) => <div className="proposal-item" key={index}><select value={item.category} aria-label="Categoria" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, category: event.target.value as "material" | "servico" }; setProposalForm({ ...proposalForm, items: next }); }}><option value="material">Material</option><option value="servico">Serviço</option></select><Input value={item.description} aria-label="Descrição" placeholder="Descrição do item" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, description: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0.01" step="0.01" value={item.quantity} aria-label="Quantidade" placeholder="Qtd." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, quantity: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0" step="0.01" value={item.unitPrice} aria-label="Valor unitário" placeholder="Valor unit." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, unitPrice: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><strong>{money(Number(item.quantity) * Number(item.unitPrice || 0))}</strong><button type="button" aria-label="Remover item" disabled={proposalForm.items.length === 1} onClick={() => setProposalForm({ ...proposalForm, items: proposalForm.items.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 /></button></div>)}</div>

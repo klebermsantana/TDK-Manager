@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Loader2, Printer } from "lucide-react";
 
 type ProposalItem = { id: number; category: "material" | "servico"; description: string; quantity: number; unitPrice: number; total: number };
-type Proposal = { id: number; opportunityTitle: string; companyName: string; number: string; status: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
+type Proposal = { id: number; opportunityTitle: string; companyName: string; number: string; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const date = (value: string) => {
@@ -52,6 +52,7 @@ export default function ProposalDocumentPage() {
         <div><small>CLIENTE</small><strong>{proposal.companyName}</strong></div>
         <div><small>OPORTUNIDADE</small><strong>{proposal.opportunityTitle}</strong></div>
         <div><small>VALIDADE</small><strong>{proposal.validUntil ? date(proposal.validUntil) : "Não informada"}</strong></div>
+        <div><small>TABELA</small><strong>{proposal.priceTable === "competitiva" ? "Competitiva" : proposal.priceTable === "valor" ? "Valor agregado" : "Padrão"}</strong></div>
       </section>
       {sections.map((section) => {
         const items = proposal.items.filter((item) => item.category === section.key);
