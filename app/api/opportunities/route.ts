@@ -23,11 +23,13 @@ export async function POST(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const title = String(payload.title ?? "").trim();
     const companyName = String(payload.companyName ?? "").trim();
+    const companyId = payload.companyId ? Number(payload.companyId) : null;
     const value = Number(payload.value ?? 0);
     if (!title || !companyName) return Response.json({ error: "Oportunidade e empresa são obrigatórias." }, { status: 400 });
     if (!Number.isFinite(value) || value < 0) return Response.json({ error: "Informe um valor estimado válido." }, { status: 400 });
     const [row] = await getDb().insert(opportunities).values({
       title,
+      companyId,
       companyName,
       value,
       stage: "novo",
