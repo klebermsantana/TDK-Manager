@@ -15,6 +15,13 @@
       "when": 1788519939604,
       "tag": "0001_jazzy_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788527437822,
+      "tag": "0002_pretty_sprite",
+      "breakpoints": true
     }
   ]
 }

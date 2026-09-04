@@ -12,6 +12,7 @@ import {
   CircleDollarSign,
   Clock3,
   Contact,
+  FileText,
   LayoutDashboard,
   Loader2,
   Mail,
@@ -53,7 +54,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals";
 type Opportunity = {
   id: number;
   title: string;
@@ -108,6 +109,8 @@ type ActivityRecord = {
   completedAt: string | null;
   createdAt: string;
 };
+type ProposalItem = { id?: number; proposalId?: number; category: "material" | "servico"; description: string; quantity: number | string; unitPrice: number | string; total?: number };
+type ProposalRecord = { id: number; opportunityId: number; opportunityTitle: string; companyName: string; number: string; status: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -165,10 +168,11 @@ export default function CrmDashboard({
   const [companies, setCompanies] = useState<Company[]>([]);
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | null
+    "opportunity" | "company" | "contact" | "activity" | "proposal" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -198,13 +202,14 @@ export default function CrmDashboard({
     phone: "",
   });
   const [activityForm, setActivityForm] = useState({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
+  const [proposalForm, setProposalForm] = useState<{ opportunityId: string; validUntil: string; discount: string; notes: string; items: ProposalItem[] }>({ opportunityId: "", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -220,6 +225,7 @@ export default function CrmDashboard({
           setCompanies(payloads[1].companies);
           setContacts(payloads[2].contacts);
           setActivities(payloads[3].activities);
+          setProposals(payloads[4].proposals);
         }
       } catch (reason) {
         if (active)
@@ -277,12 +283,13 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
+    if (kind === "proposal") setProposalForm({ opportunityId: "", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -477,6 +484,20 @@ export default function CrmDashboard({
       setError(reason instanceof Error ? reason.message : "Não foi possível excluir a atividade.");
     }
   }
+  async function createProposal(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/proposals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...proposalForm, opportunityId: Number(proposalForm.opportunityId), discount: Number(proposalForm.discount), items: proposalForm.items.map((item) => ({ ...item, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })) }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error);
+      setProposals((current) => [data.proposal, ...current]); setDialog(null);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível cadastrar a proposta."); }
+    finally { setSaving(false); }
+  }
+  async function changeProposalStatus(id: number, status: string) {
+    const previous = proposals; setProposals((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+    try { const response = await fetch("/api/proposals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); }
+    catch (reason) { setProposals(previous); setError(reason instanceof Error ? reason.message : "Não foi possível atualizar a proposta."); }
+  }
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -524,9 +545,12 @@ export default function CrmDashboard({
       "Atividades",
       "Organize retornos, reuniões e próximos passos das oportunidades.",
     ],
+    proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
   };
   const primaryAction =
-    view === "activities"
+    view === "proposals"
+      ? () => openNew("proposal")
+      : view === "activities"
       ? () => openNew("activity")
       : view === "companies"
       ? () => openNew("company")
@@ -534,7 +558,9 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "activities"
+    view === "proposals"
+      ? "Nova proposta"
+      : view === "activities"
       ? "Nova atividade"
       : view === "companies"
       ? "Nova empresa"
@@ -601,7 +627,9 @@ export default function CrmDashboard({
           </NavButton>
           <NavButton icon={<Target />}>Metas</NavButton>
           <p>GESTÃO</p>
-          <NavButton icon={<CircleDollarSign />}>Propostas</NavButton>
+          <NavButton active={view === "proposals"} onClick={() => navigate("proposals")} icon={<CircleDollarSign />}>
+            Propostas <span className="nav-count">{proposals.length}</span>
+          </NavButton>
           <NavButton icon={<Users />}>Equipe e permissões</NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
@@ -679,6 +707,8 @@ export default function CrmDashboard({
               inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "proposals" ? (
+            <Proposals proposals={proposals} add={() => openNew("proposal")} changeStatus={changeProposalStatus} />
           ) : view === "activities" ? (
             <Activities activities={activities} add={() => openNew("activity")} toggle={toggleActivity} remove={deleteActivity} />
           ) : view === "companies" ? (
@@ -987,6 +1017,18 @@ export default function CrmDashboard({
               <Input type="datetime-local" value={activityForm.dueAt} onChange={(event) => setActivityForm({ ...activityForm, dueAt: event.target.value })} />
             </Field>
             <SaveButton saving={saving} disabled={!items.some((item) => item.stage !== "ganho")}>Cadastrar atividade</SaveButton>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === "proposal"} onOpenChange={(open) => setDialog(open ? "proposal" : null)}>
+        <DialogContent className="dialog proposal-dialog">
+          <DialogHeader><span className="dialog-kicker">PROPOSTA COMERCIAL</span><DialogTitle>Nova proposta</DialogTitle><DialogDescription>Componha materiais, serviços e condições comerciais.</DialogDescription></DialogHeader>
+          <form onSubmit={createProposal} className="form proposal-form">
+            <div className="form-split"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => setProposalForm({ ...proposalForm, opportunityId: event.target.value })} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
+            <div className="proposal-items-head"><strong>Itens da proposta</strong><button type="button" onClick={() => setProposalForm({ ...proposalForm, items: [...proposalForm.items, { category: "material", description: "", quantity: 1, unitPrice: "" }] })}><Plus /> Adicionar item</button></div>
+            <div className="proposal-items">{proposalForm.items.map((item, index) => <div className="proposal-item" key={index}><select value={item.category} aria-label="Categoria" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, category: event.target.value as "material" | "servico" }; setProposalForm({ ...proposalForm, items: next }); }}><option value="material">Material</option><option value="servico">Serviço</option></select><Input value={item.description} aria-label="Descrição" placeholder="Descrição do item" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, description: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0.01" step="0.01" value={item.quantity} aria-label="Quantidade" placeholder="Qtd." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, quantity: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0" step="0.01" value={item.unitPrice} aria-label="Valor unitário" placeholder="Valor unit." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, unitPrice: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><strong>{money(Number(item.quantity) * Number(item.unitPrice || 0))}</strong><button type="button" aria-label="Remover item" disabled={proposalForm.items.length === 1} onClick={() => setProposalForm({ ...proposalForm, items: proposalForm.items.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 /></button></div>)}</div>
+            <div className="proposal-bottom"><Field label="Observações"><Textarea value={proposalForm.notes} onChange={(event) => setProposalForm({ ...proposalForm, notes: event.target.value })} placeholder="Condições, prazo de entrega ou escopo" /></Field><div><Field label="Desconto (R$)"><Input type="number" min="0" step="0.01" value={proposalForm.discount} onChange={(event) => setProposalForm({ ...proposalForm, discount: event.target.value })} /></Field><div className="proposal-total"><span>Total</span><strong>{money(Math.max(0, proposalForm.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice || 0), 0) - Number(proposalForm.discount || 0)))}</strong></div></div></div>
+            <SaveButton saving={saving} disabled={!items.length}>Criar proposta</SaveButton>
           </form>
         </DialogContent>
       </Dialog>
@@ -1370,6 +1412,11 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Proposals({ proposals, add, changeStatus }: { proposals: ProposalRecord[]; add: () => void; changeStatus: (id: number, status: string) => void }) {
+  const labels: Record<string, string> = { rascunho: "Rascunho", enviada: "Enviada", aprovada: "Aprovada", recusada: "Recusada", expirada: "Expirada" };
+  if (!proposals.length) return <Empty icon={<FileText />} title="Nenhuma proposta cadastrada" text="Crie uma proposta com materiais e serviços vinculada a uma oportunidade." action="Criar proposta" onClick={add} />;
+  return <div className="proposal-grid">{proposals.map((proposal) => <article className="proposal-card" key={proposal.id}><div className="proposal-card-head"><span><FileText /></span><div><small>{proposal.number}</small><h2>{proposal.companyName}</h2></div><select value={proposal.status} aria-label="Status da proposta" onChange={(event) => changeStatus(proposal.id, event.target.value)}><option value="rascunho">Rascunho</option><option value="enviada">Enviada</option><option value="aprovada">Aprovada</option><option value="recusada">Recusada</option><option value="expirada">Expirada</option></select></div><p>{proposal.opportunityTitle}</p><div className="proposal-breakdown"><span>Materiais <strong>{money(proposal.items.filter((item) => item.category === "material").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span><span>Serviços <strong>{money(proposal.items.filter((item) => item.category === "servico").reduce((sum, item) => sum + Number(item.total ?? 0), 0))}</strong></span></div><div className="proposal-card-total"><span>{labels[proposal.status]}</span><div><small>{proposal.discount ? `Desconto: ${money(proposal.discount)}` : "Sem desconto"}</small><strong>{money(proposal.total)}</strong></div></div></article>)}</div>;
 }
 function Activities({ activities, add, toggle, remove }: { activities: ActivityRecord[]; add: () => void; toggle: (activity: ActivityRecord) => void; remove: (activity: ActivityRecord) => void }) {
   const typeLabels: Record<string, string> = { ligacao: "Ligação", reuniao: "Reunião", visita: "Visita técnica", proposta: "Envio de proposta", retorno: "Retorno", outro: "Outro" };
