@@ -18,6 +18,7 @@ import {
   Mail,
   Menu,
   MoreHorizontal,
+  PackageOpen,
   Pencil,
   Phone,
   Plus,
@@ -55,7 +56,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog";
 type Opportunity = {
   id: number;
   title: string;
@@ -110,8 +111,9 @@ type ActivityRecord = {
   completedAt: string | null;
   createdAt: string;
 };
-type ProposalItem = { id?: number; proposalId?: number; category: "material" | "servico"; description: string; quantity: number | string; unitPrice: number | string; total?: number };
-type ProposalRecord = { id: number; opportunityId: number; opportunityTitle: string; companyName: string; number: string; status: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
+type ProposalItem = { id?: number; proposalId?: number; catalogId?: number; category: "material" | "servico"; description: string; quantity: number | string; unitPrice: number | string; total?: number };
+type ProposalRecord = { id: number; opportunityId: number; opportunityTitle: string; companyName: string; number: string; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
+type CatalogItem = { id: number; category: "material" | "servico"; code: string | null; description: string; unit: string; cost: number; competitivePrice: number; standardPrice: number; valuePrice: number; active: boolean };
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -170,10 +172,11 @@ export default function CrmDashboard({
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | "proposal" | null
+    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -205,14 +208,15 @@ export default function CrmDashboard({
     phone: "",
   });
   const [activityForm, setActivityForm] = useState({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
-  const [proposalForm, setProposalForm] = useState<{ opportunityId: string; validUntil: string; discount: string; notes: string; items: ProposalItem[] }>({ opportunityId: "", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
+  const [proposalForm, setProposalForm] = useState<{ opportunityId: string; priceTable: string; validUntil: string; discount: string; notes: string; items: ProposalItem[] }>({ opportunityId: "", priceTable: "padrao", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
+  const [catalogForm, setCatalogForm] = useState({ category: "material" as "material"|"servico", code: "", description: "", unit: "un", cost: "", competitivePrice: "", standardPrice: "", valuePrice: "" });
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -229,6 +233,7 @@ export default function CrmDashboard({
           setContacts(payloads[2].contacts);
           setActivities(payloads[3].activities);
           setProposals(payloads[4].proposals);
+          setCatalog(payloads[5].catalog);
         }
       } catch (reason) {
         if (active)
@@ -286,14 +291,15 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
-    if (kind === "proposal") setProposalForm({ opportunityId: "", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
+    if (kind === "proposal") setProposalForm({ opportunityId: "", priceTable: "padrao", validUntil: "", discount: "0", notes: "", items: [{ category: "servico", description: "", quantity: 1, unitPrice: "" }] });
     if (kind === "proposal") setEditingProposalId(null);
+    if (kind === "catalog") { setEditingId(null); setCatalogForm({ category:"material",code:"",description:"",unit:"un",cost:"",competitivePrice:"",standardPrice:"",valuePrice:"" }); }
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -500,10 +506,19 @@ export default function CrmDashboard({
   }
   function editProposal(proposal: ProposalRecord) {
     setEditingProposalId(proposal.id);
-    setProposalForm({ opportunityId: String(proposal.opportunityId), validUntil: proposal.validUntil ?? "", discount: String(proposal.discount), notes: proposal.notes ?? "", items: proposal.items.map((item) => ({ category: item.category, description: item.description, quantity: item.quantity, unitPrice: item.unitPrice })) });
+    setProposalForm({ opportunityId: String(proposal.opportunityId), priceTable: proposal.priceTable ?? "padrao", validUntil: proposal.validUntil ?? "", discount: String(proposal.discount), notes: proposal.notes ?? "", items: proposal.items.map((item) => ({ category: item.category, description: item.description, quantity: item.quantity, unitPrice: item.unitPrice })) });
     setSelectedProposalId(null);
     setDialog("proposal");
   }
+  async function saveCatalog(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setError("");
+    try { const response=await fetch("/api/catalog",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...catalogForm,id:editingId,cost:Number(catalogForm.cost),competitivePrice:Number(catalogForm.competitivePrice),standardPrice:Number(catalogForm.standardPrice),valuePrice:Number(catalogForm.valuePrice)})}); const data=await response.json(); if(!response.ok)throw new Error(data.error); setCatalog(current=>(editingId?current.map(item=>item.id===editingId?data.item:item):[...current,data.item]).sort((a,b)=>a.description.localeCompare(b.description))); setDialog(null); setEditingId(null); }
+    catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar o item.");} finally{setSaving(false);}
+  }
+  function editCatalog(item: CatalogItem){setEditingId(item.id);setCatalogForm({category:item.category,code:item.code??"",description:item.description,unit:item.unit,cost:String(item.cost),competitivePrice:String(item.competitivePrice),standardPrice:String(item.standardPrice),valuePrice:String(item.valuePrice)});setDialog("catalog");}
+  async function deleteCatalog(item: CatalogItem){if(!window.confirm(`Excluir “${item.description}”?`))return;const response=await fetch(`/api/catalog?id=${item.id}`,{method:"DELETE"});const data=await response.json();if(response.ok)setCatalog(current=>current.filter(currentItem=>currentItem.id!==item.id));else setError(data.error);}
+  const catalogPrice=(item:CatalogItem,table:string)=>table==="competitiva"?item.competitivePrice:table==="valor"?item.valuePrice:item.standardPrice;
+  function addCatalogItem(id:string){const item=catalog.find(entry=>entry.id===Number(id));if(!item)return;setProposalForm(current=>({...current,items:[...current.items.filter(entry=>entry.description||entry.unitPrice),{catalogId:item.id,category:item.category,description:item.description,quantity:1,unitPrice:catalogPrice(item,current.priceTable)}]}));}
   async function changeProposalStatus(id: number, status: string) {
     const previous = proposals; setProposals((current) => current.map((item) => item.id === id ? { ...item, status } : item));
     try { const response = await fetch("/api/proposals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); }
@@ -557,9 +572,10 @@ export default function CrmDashboard({
       "Organize retornos, reuniões e próximos passos das oportunidades.",
     ],
     proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
+    catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
   };
   const primaryAction =
-    view === "proposals"
+    view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -569,7 +585,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "proposals"
+    view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -641,6 +657,9 @@ export default function CrmDashboard({
           <p>GESTÃO</p>
           <NavButton active={view === "proposals"} onClick={() => navigate("proposals")} icon={<CircleDollarSign />}>
             Propostas <span className="nav-count">{proposals.length}</span>
+          </NavButton>
+          <NavButton active={view === "catalog"} onClick={() => navigate("catalog")} icon={<PackageOpen />}>
+            Produtos e serviços <span className="nav-count">{catalog.length}</span>
           </NavButton>
           <NavButton icon={<Users />}>Equipe e permissões</NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
@@ -719,6 +738,8 @@ export default function CrmDashboard({
               inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "catalog" ? (
+            <Catalog catalog={catalog} add={() => openNew("catalog")} edit={editCatalog} remove={deleteCatalog} />
           ) : view === "proposals" ? (
             <Proposals proposals={proposals} add={() => openNew("proposal")} inspect={(proposal) => setSelectedProposalId(proposal.id)} changeStatus={changeProposalStatus} />
           ) : view === "activities" ? (
@@ -1041,12 +1062,18 @@ export default function CrmDashboard({
         <DialogContent className="dialog proposal-dialog">
           <DialogHeader><span className="dialog-kicker">PROPOSTA COMERCIAL</span><DialogTitle>{editingProposalId ? "Editar proposta" : "Nova proposta"}</DialogTitle><DialogDescription>{editingProposalId ? "Atualize os itens, valores e condições comerciais." : "Componha materiais, serviços e condições comerciais."}</DialogDescription></DialogHeader>
           <form onSubmit={createProposal} className="form proposal-form">
-            <div className="form-split"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => setProposalForm({ ...proposalForm, opportunityId: event.target.value })} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
+            <div className="proposal-top"><Field label="Oportunidade"><select value={proposalForm.opportunityId} onChange={(event) => setProposalForm({ ...proposalForm, opportunityId: event.target.value })} required><option value="">Selecione</option>{items.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}</select></Field><Field label="Tabela de preços"><select value={proposalForm.priceTable} onChange={(event) => {const priceTable=event.target.value;setProposalForm(current=>({...current,priceTable,items:current.items.map(entry=>{const catalogItem=catalog.find(item=>item.id===entry.catalogId);return catalogItem?{...entry,unitPrice:catalogPrice(catalogItem,priceTable)}:entry;})}));}}><option value="competitiva">Competitiva</option><option value="padrao">Padrão</option><option value="valor">Valor agregado</option></select></Field><Field label="Validade"><Input type="date" value={proposalForm.validUntil} onChange={(event) => setProposalForm({ ...proposalForm, validUntil: event.target.value })} /></Field></div>
             <div className="proposal-items-head"><strong>Itens da proposta</strong><button type="button" onClick={() => setProposalForm({ ...proposalForm, items: [...proposalForm.items, { category: "material", description: "", quantity: 1, unitPrice: "" }] })}><Plus /> Adicionar item</button></div>
+            {catalog.length ? <Field label="Selecionar do catálogo"><select defaultValue="" onChange={(event)=>{addCatalogItem(event.target.value);event.target.value="";}}><option value="">Escolha um produto ou serviço...</option>{catalog.map(item=><option key={item.id} value={item.id}>{item.category==="material"?"Material":"Serviço"} · {item.description} · {money(catalogPrice(item,proposalForm.priceTable))}</option>)}</select></Field>:null}
             <div className="proposal-items">{proposalForm.items.map((item, index) => <div className="proposal-item" key={index}><select value={item.category} aria-label="Categoria" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, category: event.target.value as "material" | "servico" }; setProposalForm({ ...proposalForm, items: next }); }}><option value="material">Material</option><option value="servico">Serviço</option></select><Input value={item.description} aria-label="Descrição" placeholder="Descrição do item" onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, description: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0.01" step="0.01" value={item.quantity} aria-label="Quantidade" placeholder="Qtd." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, quantity: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><Input type="number" min="0" step="0.01" value={item.unitPrice} aria-label="Valor unitário" placeholder="Valor unit." onChange={(event) => { const next = [...proposalForm.items]; next[index] = { ...item, unitPrice: event.target.value }; setProposalForm({ ...proposalForm, items: next }); }} /><strong>{money(Number(item.quantity) * Number(item.unitPrice || 0))}</strong><button type="button" aria-label="Remover item" disabled={proposalForm.items.length === 1} onClick={() => setProposalForm({ ...proposalForm, items: proposalForm.items.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 /></button></div>)}</div>
             <div className="proposal-bottom"><Field label="Observações"><Textarea value={proposalForm.notes} onChange={(event) => setProposalForm({ ...proposalForm, notes: event.target.value })} placeholder="Condições, prazo de entrega ou escopo" /></Field><div><Field label="Desconto (R$)"><Input type="number" min="0" step="0.01" value={proposalForm.discount} onChange={(event) => setProposalForm({ ...proposalForm, discount: event.target.value })} /></Field><div className="proposal-total"><span>Total</span><strong>{money(Math.max(0, proposalForm.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice || 0), 0) - Number(proposalForm.discount || 0)))}</strong></div></div></div>
             <SaveButton saving={saving} disabled={!items.length}>{editingProposalId ? "Salvar alterações" : "Criar proposta"}</SaveButton>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === "catalog"} onOpenChange={(open)=>{setDialog(open?"catalog":null);if(!open)setEditingId(null);}}>
+        <DialogContent className="dialog catalog-dialog"><DialogHeader><span className="dialog-kicker">CATÁLOGO COMERCIAL</span><DialogTitle>{editingId?"Editar item":"Novo produto ou serviço"}</DialogTitle><DialogDescription>Cadastre o custo e os preços de cada estratégia comercial.</DialogDescription></DialogHeader>
+          <form className="form" onSubmit={saveCatalog}><div className="form-split"><Field label="Tipo"><select value={catalogForm.category} onChange={event=>setCatalogForm({...catalogForm,category:event.target.value as "material"|"servico"})}><option value="material">Material</option><option value="servico">Serviço</option></select></Field><Field label="Código"><Input value={catalogForm.code} onChange={event=>setCatalogForm({...catalogForm,code:event.target.value})} placeholder="Ex.: MAT-001" /></Field></div><Field label="Descrição"><Input value={catalogForm.description} onChange={event=>setCatalogForm({...catalogForm,description:event.target.value})} required placeholder="Nome do produto ou serviço" /></Field><div className="form-split"><Field label="Unidade"><Input value={catalogForm.unit} onChange={event=>setCatalogForm({...catalogForm,unit:event.target.value})} /></Field><Field label="Custo (R$)"><Input type="number" min="0" step="0.01" value={catalogForm.cost} onChange={event=>setCatalogForm({...catalogForm,cost:event.target.value})} /></Field></div><div className="catalog-price-fields"><Field label="Competitiva"><Input type="number" min="0" step="0.01" value={catalogForm.competitivePrice} onChange={event=>setCatalogForm({...catalogForm,competitivePrice:event.target.value})} required /></Field><Field label="Padrão"><Input type="number" min="0" step="0.01" value={catalogForm.standardPrice} onChange={event=>setCatalogForm({...catalogForm,standardPrice:event.target.value})} required /></Field><Field label="Valor agregado"><Input type="number" min="0" step="0.01" value={catalogForm.valuePrice} onChange={event=>setCatalogForm({...catalogForm,valuePrice:event.target.value})} required /></Field></div><SaveButton saving={saving}>{editingId?"Salvar alterações":"Cadastrar item"}</SaveButton></form>
         </DialogContent>
       </Dialog>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
@@ -1429,6 +1456,11 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Catalog({catalog,add,edit,remove}:{catalog:CatalogItem[];add:()=>void;edit:(item:CatalogItem)=>void;remove:(item:CatalogItem)=>void}){
+  if(!catalog.length)return <Empty icon={<PackageOpen/>} title="Catálogo vazio" text="Cadastre produtos e serviços com custos e três níveis de preço." action="Cadastrar item" onClick={add}/>;
+  const margin=(price:number,cost:number)=>price?Math.round((price-cost)/price*100):0;
+  return <div className="catalog-list"><div className="catalog-table-head"><span>Item</span><span>Custo</span><span>Competitiva</span><span>Padrão</span><span>Valor agregado</span><span/></div>{catalog.map(item=><article className="catalog-row" key={item.id}><div><small>{item.category==="material"?"Material":"Serviço"}{item.code?` · ${item.code}`:""}</small><strong>{item.description}</strong><em>por {item.unit}</em></div><span>{money(item.cost)}</span><span><strong>{money(item.competitivePrice)}</strong><small>{margin(item.competitivePrice,item.cost)}% margem</small></span><span><strong>{money(item.standardPrice)}</strong><small>{margin(item.standardPrice,item.cost)}% margem</small></span><span><strong>{money(item.valuePrice)}</strong><small>{margin(item.valuePrice,item.cost)}% margem</small></span><div className="record-actions"><button aria-label={`Editar ${item.description}`} onClick={()=>edit(item)}><Pencil/></button><button className="danger" aria-label={`Excluir ${item.description}`} onClick={()=>remove(item)}><Trash2/></button></div></article>)}</div>;
 }
 function Proposals({ proposals, add, inspect, changeStatus }: { proposals: ProposalRecord[]; add: () => void; inspect: (proposal: ProposalRecord) => void; changeStatus: (id: number, status: string) => void }) {
   const labels: Record<string, string> = { rascunho: "Rascunho", enviada: "Enviada", aprovada: "Aprovada", recusada: "Recusada", expirada: "Expirada" };
