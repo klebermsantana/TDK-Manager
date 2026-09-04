@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     const opportunityId = Number(payload.opportunityId);
     const discount = Number(payload.discount ?? 0);
     const rawItems = Array.isArray(payload.items) ? payload.items as Record<string, unknown>[] : [];
-    const items = rawItems.map((item) => ({ category: String(item.category), description: String(item.description ?? "").trim(), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })).filter((item) => item.description && ["material", "servico"].includes(item.category) && item.quantity > 0 && item.unitPrice >= 0);
+    const items = rawItems.map((item) => ({ catalogId: Number(item.catalogId)||null, category: String(item.category), description: String(item.description ?? "").trim(), quantity: Number(item.quantity), unitCost: Math.max(0,Number(item.unitCost)||0), unitPrice: Number(item.unitPrice) })).filter((item) => item.description && ["material", "servico"].includes(item.category) && item.quantity > 0 && item.unitPrice >= 0);
     if (!opportunityId || !items.length || !Number.isFinite(discount) || discount < 0) return Response.json({ error: "Revise os dados e inclua ao menos um item válido." }, { status: 400 });
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     if (discount > subtotal) return Response.json({ error: "O desconto não pode superar o subtotal." }, { status: 400 });
@@ -60,7 +60,7 @@ export async function PATCH(request: Request) {
     }
     const opportunityId = Number(payload.opportunityId);
     const discount = Number(payload.discount ?? 0);
-    const items = (payload.items as Record<string, unknown>[]).map((item) => ({ category: String(item.category), description: String(item.description ?? "").trim(), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })).filter((item) => item.description && ["material", "servico"].includes(item.category) && item.quantity > 0 && item.unitPrice >= 0);
+    const items = (payload.items as Record<string, unknown>[]).map((item) => ({ catalogId: Number(item.catalogId)||null, category: String(item.category), description: String(item.description ?? "").trim(), quantity: Number(item.quantity), unitCost: Math.max(0,Number(item.unitCost)||0), unitPrice: Number(item.unitPrice) })).filter((item) => item.description && ["material", "servico"].includes(item.category) && item.quantity > 0 && item.unitPrice >= 0);
     if (!opportunityId || !items.length || !Number.isFinite(discount) || discount < 0) return Response.json({ error: "Revise os dados e inclua ao menos um item válido." }, { status: 400 });
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     if (discount > subtotal) return Response.json({ error: "O desconto não pode superar o subtotal." }, { status: 400 });
