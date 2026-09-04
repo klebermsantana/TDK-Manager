@@ -5,13 +5,20 @@ import { opportunities, proposalItems, proposals } from "@/db/schema";
 
 const statuses = new Set(["rascunho", "enviada", "aprovada", "recusada", "expirada"]);
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
     const rows = await getDb().select({ id: proposals.id, opportunityId: proposals.opportunityId, opportunityTitle: opportunities.title, companyName: opportunities.companyName, number: proposals.number, status: proposals.status, validUntil: proposals.validUntil, discount: proposals.discount, subtotal: proposals.subtotal, total: proposals.total, notes: proposals.notes, createdAt: proposals.createdAt }).from(proposals).innerJoin(opportunities, eq(proposals.opportunityId, opportunities.id)).orderBy(desc(proposals.createdAt));
     const items = rows.length ? await getDb().select().from(proposalItems).where(inArray(proposalItems.proposalId, rows.map((row) => row.id))).orderBy(asc(proposalItems.id)) : [];
-    return Response.json({ proposals: rows.map((row) => ({ ...row, items: items.filter((item) => item.proposalId === row.id) })) });
+    const records = rows.map((row) => ({ ...row, items: items.filter((item) => item.proposalId === row.id) }));
+    const requestedId = Number(new URL(request.url).searchParams.get("id"));
+    if (requestedId) {
+      const proposal = records.find((record) => record.id === requestedId);
+      if (!proposal) return Response.json({ error: "Proposta não encontrada." }, { status: 404 });
+      return Response.json({ proposal });
+    }
+    return Response.json({ proposals: records });
   } catch {
     return Response.json({ error: "Não foi possível carregar as propostas." }, { status: 503 });
   }
