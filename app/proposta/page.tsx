@@ -45,7 +45,7 @@ export default function ProposalDocumentPage() {
     </nav>
     <article className="proposal-document">
       <header className="proposal-document-header">
-        <img src="/tdk-logo-oficial.png" alt="TDK Telecomunicações" />
+        <img src="/tdk-logo-documento.png" alt="TDK Telecomunicações — Soluções que Transformam" />
         <div><span>PROPOSTA COMERCIAL</span><h1>{proposal.number}</h1><p>Emitida em {date(proposal.createdAt)}</p></div>
       </header>
       <section className="proposal-client-block">
