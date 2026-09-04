@@ -50,8 +50,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities";
 type Opportunity = {
   id: number;
   title: string;
@@ -91,6 +92,17 @@ type ContactRecord = {
   role: string | null;
   email: string | null;
   phone: string | null;
+  createdAt: string;
+};
+type ActivityRecord = {
+  id: number;
+  opportunityId: number;
+  opportunityTitle: string;
+  companyName: string;
+  type: string;
+  description: string;
+  dueAt: string | null;
+  completedAt: string | null;
   createdAt: string;
 };
 
@@ -148,10 +160,11 @@ export default function CrmDashboard({
   const [items, setItems] = useState<Opportunity[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | null
+    "opportunity" | "company" | "contact" | "activity" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -177,13 +190,14 @@ export default function CrmDashboard({
     email: "",
     phone: "",
   });
+  const [activityForm, setActivityForm] = useState({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -198,6 +212,7 @@ export default function CrmDashboard({
           );
           setCompanies(payloads[1].companies);
           setContacts(payloads[2].contacts);
+          setActivities(payloads[3].activities);
         }
       } catch (reason) {
         if (active)
@@ -255,11 +270,12 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "" });
+    if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -412,6 +428,44 @@ export default function CrmDashboard({
       setSaving(false);
     }
   }
+  async function createActivity(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/activities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...activityForm, opportunityId: Number(activityForm.opportunityId), dueAt: activityForm.dueAt || null }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setActivities((current) => [data.activity, ...current]);
+      setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
+      setDialog(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível cadastrar a atividade.");
+    } finally { setSaving(false); }
+  }
+  async function toggleActivity(activity: ActivityRecord) {
+    const completed = !activity.completedAt;
+    const previous = activities;
+    setActivities((current) => current.map((item) => item.id === activity.id ? { ...item, completedAt: completed ? new Date().toISOString() : null } : item));
+    try {
+      const response = await fetch("/api/activities", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: activity.id, completed }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+    } catch (reason) {
+      setActivities(previous);
+      setError(reason instanceof Error ? reason.message : "Não foi possível atualizar a atividade.");
+    }
+  }
+  async function deleteActivity(activity: ActivityRecord) {
+    try {
+      const response = await fetch(`/api/activities?id=${activity.id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setActivities((current) => current.filter((item) => item.id !== activity.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível excluir a atividade.");
+    }
+  }
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -454,15 +508,24 @@ export default function CrmDashboard({
       "Contatos",
       "Organize as pessoas-chave de cada empresa.",
     ],
+    activities: [
+      "CRM • AGENDA COMERCIAL",
+      "Atividades",
+      "Organize retornos, reuniões e próximos passos das oportunidades.",
+    ],
   };
   const primaryAction =
-    view === "companies"
+    view === "activities"
+      ? () => openNew("activity")
+      : view === "companies"
       ? () => openNew("company")
       : view === "contacts"
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "companies"
+    view === "activities"
+      ? "Nova atividade"
+      : view === "companies"
       ? "Nova empresa"
       : view === "contacts"
         ? "Novo contato"
@@ -520,7 +583,9 @@ export default function CrmDashboard({
           >
             Contatos
           </NavButton>
-          <NavButton icon={<CalendarClock />}>Atividades</NavButton>
+          <NavButton active={view === "activities"} onClick={() => navigate("activities")} icon={<CalendarClock />}>
+            Atividades <span className="nav-count">{activities.filter((item) => !item.completedAt).length}</span>
+          </NavButton>
           <NavButton icon={<Target />}>Metas</NavButton>
           <p>GESTÃO</p>
           <NavButton icon={<CircleDollarSign />}>Propostas</NavButton>
@@ -600,6 +665,8 @@ export default function CrmDashboard({
               edit={editOpportunity}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "activities" ? (
+            <Activities activities={activities} add={() => openNew("activity")} toggle={toggleActivity} remove={deleteActivity} />
           ) : view === "companies" ? (
             <Companies
               companies={filteredCompanies}
@@ -835,6 +902,35 @@ export default function CrmDashboard({
             <SaveButton saving={saving} disabled={!companies.length}>
               {editingId ? "Salvar alterações" : "Cadastrar contato"}
             </SaveButton>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === "activity"} onOpenChange={(open) => setDialog(open ? "activity" : null)}>
+        <DialogContent className="dialog">
+          <DialogHeader>
+            <span className="dialog-kicker">AGENDA COMERCIAL</span>
+            <DialogTitle>Nova atividade</DialogTitle>
+            <DialogDescription>Registre o próximo passo de uma oportunidade.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={createActivity} className="form">
+            <Field label="Oportunidade">
+              <select value={activityForm.opportunityId} onChange={(event) => setActivityForm({ ...activityForm, opportunityId: event.target.value })} required>
+                <option value="">Selecione uma oportunidade</option>
+                {items.filter((item) => item.stage !== "ganho").map((item) => <option key={item.id} value={item.id}>{item.title} — {item.company}</option>)}
+              </select>
+            </Field>
+            <Field label="Tipo de atividade">
+              <select value={activityForm.type} onChange={(event) => setActivityForm({ ...activityForm, type: event.target.value })}>
+                <option value="retorno">Retorno ao cliente</option><option value="ligacao">Ligação</option><option value="reuniao">Reunião</option><option value="visita">Visita técnica</option><option value="proposta">Envio de proposta</option><option value="outro">Outro</option>
+              </select>
+            </Field>
+            <Field label="Descrição">
+              <Textarea value={activityForm.description} onChange={(event) => setActivityForm({ ...activityForm, description: event.target.value })} placeholder="Ex.: Confirmar escopo e agendar apresentação" required />
+            </Field>
+            <Field label="Prazo">
+              <Input type="datetime-local" value={activityForm.dueAt} onChange={(event) => setActivityForm({ ...activityForm, dueAt: event.target.value })} />
+            </Field>
+            <SaveButton saving={saving} disabled={!items.some((item) => item.stage !== "ganho")}>Cadastrar atividade</SaveButton>
           </form>
         </DialogContent>
       </Dialog>
@@ -1213,6 +1309,24 @@ function Contacts({
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+function Activities({ activities, add, toggle, remove }: { activities: ActivityRecord[]; add: () => void; toggle: (activity: ActivityRecord) => void; remove: (activity: ActivityRecord) => void }) {
+  const typeLabels: Record<string, string> = { ligacao: "Ligação", reuniao: "Reunião", visita: "Visita técnica", proposta: "Envio de proposta", retorno: "Retorno", outro: "Outro" };
+  if (!activities.length) return <Empty icon={<CalendarClock />} title="Nenhuma atividade cadastrada" text="Registre o próximo passo de uma oportunidade para organizar sua rotina comercial." action="Cadastrar atividade" onClick={add} />;
+  const sorted = [...activities].sort((a, b) => Number(Boolean(a.completedAt)) - Number(Boolean(b.completedAt)) || String(a.dueAt ?? "9999").localeCompare(String(b.dueAt ?? "9999")));
+  return (
+    <div className="activity-list">
+      <div className="activity-summary"><strong>{activities.filter((item) => !item.completedAt).length}</strong><span>atividades pendentes</span><i /><strong>{activities.filter((item) => item.completedAt).length}</strong><span>concluídas</span></div>
+      {sorted.map((activity) => {
+        const overdue = Boolean(activity.dueAt && !activity.completedAt && new Date(activity.dueAt) < new Date());
+        return <article className={`activity-card ${activity.completedAt ? "completed" : ""}`} key={activity.id}>
+          <button className="activity-check" onClick={() => toggle(activity)} aria-label={activity.completedAt ? "Reabrir atividade" : "Concluir atividade"}><CheckCircle2 /></button>
+          <div className="activity-main"><div className="activity-tags"><span>{typeLabels[activity.type] ?? activity.type}</span>{overdue && <b>Atrasada</b>}</div><h3>{activity.description}</h3><p><Building2 /> {activity.companyName} · {activity.opportunityTitle}</p></div>
+          <div className="activity-side"><span className="activity-date"><CalendarClock />{activity.dueAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(activity.dueAt)) : "Sem prazo"}</span><button className="activity-delete" onClick={() => remove(activity)} aria-label="Excluir atividade"><Trash2 /></button></div>
+        </article>;
+      })}
     </div>
   );
 }
