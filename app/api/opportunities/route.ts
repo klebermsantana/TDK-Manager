@@ -1,6 +1,58 @@
 import { desc, eq } from "drizzle-orm";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { opportunities } from "@/db/schema";
-export async function GET(){try{return Response.json({opportunities:await getDb().select().from(opportunities).orderBy(desc(opportunities.updatedAt)).limit(200)})}catch{return Response.json({error:"Não foi possível carregar as oportunidades."},{status:503})}}
-export async function POST(request:Request){try{const p=await request.json() as Record<string,unknown>;const title=String(p.title??"").trim(),companyName=String(p.companyName??"").trim();if(!title||!companyName)return Response.json({error:"Oportunidade e empresa são obrigatórias."},{status:400});const [row]=await getDb().insert(opportunities).values({title,companyName,value:Number(p.value)||0,stage:"novo",ownerName:String(p.ownerName??"Sem responsável")}).returning();return Response.json({opportunity:row},{status:201})}catch{return Response.json({error:"Não foi possível cadastrar a oportunidade."},{status:500})}}
-export async function PATCH(request:Request){try{const p=await request.json() as {id?:number;stage?:string};if(!p.id||!p.stage)return Response.json({error:"Dados inválidos"},{status:400});const [row]=await getDb().update(opportunities).set({stage:p.stage,updatedAt:new Date().toISOString()}).where(eq(opportunities.id,p.id)).returning();return Response.json({opportunity:row})}catch{return Response.json({error:"Não foi possível atualizar a oportunidade."},{status:500})}}
+
+const validStages = new Set(["novo", "qualificacao", "proposta", "negociacao", "ganho"]);
+
+export async function GET() {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const rows = await getDb().select().from(opportunities).orderBy(desc(opportunities.updatedAt)).limit(200);
+    return Response.json({ opportunities: rows });
+  } catch {
+    return Response.json({ error: "Não foi possível carregar as oportunidades." }, { status: 503 });
+  }
+}
+
+export async function POST(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const payload = await request.json() as Record<string, unknown>;
+    const title = String(payload.title ?? "").trim();
+    const companyName = String(payload.companyName ?? "").trim();
+    const value = Number(payload.value ?? 0);
+    if (!title || !companyName) return Response.json({ error: "Oportunidade e empresa são obrigatórias." }, { status: 400 });
+    if (!Number.isFinite(value) || value < 0) return Response.json({ error: "Informe um valor estimado válido." }, { status: 400 });
+    const [row] = await getDb().insert(opportunities).values({
+      title,
+      companyName,
+      value,
+      stage: "novo",
+      ownerName: user.fullName ?? user.email,
+      expectedCloseAt: payload.expectedCloseAt ? String(payload.expectedCloseAt) : null,
+    }).returning();
+    return Response.json({ opportunity: row }, { status: 201 });
+  } catch {
+    return Response.json({ error: "Não foi possível cadastrar a oportunidade." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  try {
+    const payload = await request.json() as { id?: number; stage?: string };
+    if (!payload.id || !payload.stage || !validStages.has(payload.stage)) return Response.json({ error: "Etapa da oportunidade inválida." }, { status: 400 });
+    const [row] = await getDb().update(opportunities)
+      .set({ stage: payload.stage, updatedAt: new Date().toISOString() })
+      .where(eq(opportunities.id, payload.id))
+      .returning();
+    if (!row) return Response.json({ error: "Oportunidade não encontrada." }, { status: 404 });
+    return Response.json({ opportunity: row });
+  } catch {
+    return Response.json({ error: "Não foi possível atualizar a oportunidade." }, { status: 500 });
+  }
+}
