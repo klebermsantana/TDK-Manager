@@ -7,7 +7,14 @@ type ProposalItem = { id: number; category: "material" | "servico"; description:
 type Proposal = { id: number; opportunityTitle: string; companyName: string; number: string; status: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-const date = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(value.includes("T") ? value : `${value}T12:00:00Z`));
+const date = (value: string) => {
+  const dateTime = value.replace(" ", "T");
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T12:00:00Z`
+    : /(?:Z|[+-]\d{2}:\d{2})$/.test(dateTime) ? dateTime : `${dateTime}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? "Data não informada" : new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(parsed);
+};
 
 export default function ProposalDocumentPage() {
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -32,7 +39,7 @@ export default function ProposalDocumentPage() {
 
   return <main className="proposal-print-page">
     <nav className="proposal-print-toolbar" aria-label="Ações da proposta">
-      <button onClick={() => window.close()}><ArrowLeft /> Voltar</button>
+      <button onClick={() => window.history.back()}><ArrowLeft /> Voltar</button>
       <span>Confira os dados antes de salvar</span>
       <button className="primary" onClick={() => window.print()}><Printer /> Imprimir / Salvar em PDF</button>
     </nav>
