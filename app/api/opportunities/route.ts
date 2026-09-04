@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { opportunities } from "@/db/schema";
 
 const validStages = new Set(["novo", "qualificacao", "proposta", "negociacao", "ganho"]);
+const validTemperatures = new Set(["cold", "warm", "hot"]);
 
 export async function GET() {
   const user = await getChatGPTUser();
@@ -25,13 +26,18 @@ export async function POST(request: Request) {
     const companyName = String(payload.companyName ?? "").trim();
     const companyId = payload.companyId ? Number(payload.companyId) : null;
     const value = Number(payload.value ?? 0);
+    const probability = Number(payload.probability ?? 10);
+    const temperature = String(payload.temperature ?? "warm");
     if (!title || !companyName) return Response.json({ error: "Oportunidade e empresa são obrigatórias." }, { status: 400 });
     if (!Number.isFinite(value) || value < 0) return Response.json({ error: "Informe um valor estimado válido." }, { status: 400 });
+    if (!Number.isInteger(probability) || probability < 0 || probability > 100 || !validTemperatures.has(temperature)) return Response.json({ error: "Probabilidade ou temperatura inválida." }, { status: 400 });
     const [row] = await getDb().insert(opportunities).values({
       title,
       companyId,
       companyName,
       value,
+      probability,
+      temperature,
       stage: "novo",
       ownerName: user.fullName ?? user.email,
       expectedCloseAt: payload.expectedCloseAt ? String(payload.expectedCloseAt) : null,
@@ -57,8 +63,10 @@ export async function PATCH(request: Request) {
       const title = String(payload.title).trim();
       const companyName = String(payload.companyName ?? "").trim();
       const value = Number(payload.value ?? 0);
-      if (!title || !companyName || !Number.isFinite(value) || value < 0) return Response.json({ error: "Revise os dados da oportunidade." }, { status: 400 });
-      Object.assign(changes, { title, companyId: Number(payload.companyId) || null, companyName, value, expectedCloseAt: payload.expectedCloseAt ? String(payload.expectedCloseAt) : null });
+      const probability = Number(payload.probability ?? 10);
+      const temperature = String(payload.temperature ?? "warm");
+      if (!title || !companyName || !Number.isFinite(value) || value < 0 || !Number.isInteger(probability) || probability < 0 || probability > 100 || !validTemperatures.has(temperature)) return Response.json({ error: "Revise os dados da oportunidade." }, { status: 400 });
+      Object.assign(changes, { title, companyId: Number(payload.companyId) || null, companyName, value, probability, temperature, expectedCloseAt: payload.expectedCloseAt ? String(payload.expectedCloseAt) : null });
     }
     const [row] = await getDb().update(opportunities)
       .set(changes)

@@ -51,6 +51,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities";
 type Opportunity = {
@@ -63,6 +64,7 @@ type Opportunity = {
   initials: string;
   due: string;
   expectedCloseAt: string | null;
+  probability: number;
   stage: string;
   temperature: "hot" | "warm" | "cold";
 };
@@ -75,6 +77,7 @@ type ApiOpportunity = {
   ownerName: string;
   expectedCloseAt: string | null;
   stage: string;
+  probability: number;
   temperature: "hot" | "warm" | "cold";
 };
 type Company = {
@@ -147,6 +150,7 @@ const fromApi = (item: ApiOpportunity): Opportunity => ({
   initials: initials(item.ownerName),
   due: dueLabel(item.expectedCloseAt),
   expectedCloseAt: item.expectedCloseAt,
+  probability: item.probability,
   stage: item.stage,
   temperature: item.temperature,
 });
@@ -171,12 +175,15 @@ export default function CrmDashboard({
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "company" | "contact" | "opportunity"; id: number; name: string } | null>(null);
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [opportunityForm, setOpportunityForm] = useState({
     title: "",
     companyId: "",
     value: "",
     expectedCloseAt: "",
+    probability: "10",
+    temperature: "warm" as "cold" | "warm" | "hot",
   });
   const [companyForm, setCompanyForm] = useState({
     name: "",
@@ -274,7 +281,7 @@ export default function CrmDashboard({
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
-    if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "" });
+    if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
     setDialog(kind);
   }
@@ -290,7 +297,7 @@ export default function CrmDashboard({
   }
   function editOpportunity(item: Opportunity) {
     setEditingId(item.id);
-    setOpportunityForm({ title: item.title, companyId: String(item.companyId ?? ""), value: String(item.value), expectedCloseAt: item.expectedCloseAt ?? "" });
+    setOpportunityForm({ title: item.title, companyId: String(item.companyId ?? ""), value: String(item.value), expectedCloseAt: item.expectedCloseAt ?? "", probability: String(item.probability), temperature: item.temperature });
     setDialog("opportunity");
   }
   async function move(stage: string) {
@@ -337,6 +344,8 @@ export default function CrmDashboard({
           companyId: company.id,
           companyName: company.name,
           value: Number(opportunityForm.value) || 0,
+          probability: Number(opportunityForm.probability),
+          temperature: opportunityForm.temperature,
           expectedCloseAt: opportunityForm.expectedCloseAt || null,
         }),
       });
@@ -350,6 +359,8 @@ export default function CrmDashboard({
         companyId: "",
         value: "",
         expectedCloseAt: "",
+        probability: "10",
+        temperature: "warm",
       });
       setDialog(null);
     } catch (reason) {
@@ -530,6 +541,8 @@ export default function CrmDashboard({
       : view === "contacts"
         ? "Novo contato"
         : "Nova oportunidade";
+  const selectedOpportunity = items.find((item) => item.id === selectedOpportunityId) ?? null;
+  const selectedActivities = selectedOpportunity ? activities.filter((activity) => activity.opportunityId === selectedOpportunity.id) : [];
 
   return (
     <div className="app-shell">
@@ -663,6 +676,7 @@ export default function CrmDashboard({
               move={move}
               add={() => openNew("opportunity")}
               edit={editOpportunity}
+              inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
           ) : view === "activities" ? (
@@ -686,6 +700,36 @@ export default function CrmDashboard({
           )}
         </div>
       </main>
+
+      <Sheet open={Boolean(selectedOpportunity)} onOpenChange={(open) => { if (!open) setSelectedOpportunityId(null); }}>
+        <SheetContent className="opportunity-sheet">
+          {selectedOpportunity && <>
+            <SheetHeader className="opportunity-sheet-head">
+              <span className="dialog-kicker">DETALHES DA OPORTUNIDADE</span>
+              <SheetTitle>{selectedOpportunity.title}</SheetTitle>
+              <SheetDescription>{selectedOpportunity.company}</SheetDescription>
+            </SheetHeader>
+            <div className="opportunity-sheet-body">
+              <div className="opportunity-value"><span>Valor estimado</span><strong>{money(selectedOpportunity.value)}</strong></div>
+              <div className="opportunity-facts">
+                <div><span>Etapa atual</span><strong>{stages.find((stage) => stage.id === selectedOpportunity.stage)?.label ?? selectedOpportunity.stage}</strong></div>
+                <div><span>Probabilidade</span><strong>{selectedOpportunity.probability}%</strong></div>
+                <div><span>Temperatura</span><strong>{selectedOpportunity.temperature === "hot" ? "Alta" : selectedOpportunity.temperature === "warm" ? "Média" : "Baixa"}</strong></div>
+                <div><span>Fechamento previsto</span><strong>{selectedOpportunity.due}</strong></div>
+              </div>
+              <div className="probability-bar"><span style={{ width: `${selectedOpportunity.probability}%` }} /></div>
+              <div className="sheet-actions">
+                <Button onClick={() => { setSelectedOpportunityId(null); editOpportunity(selectedOpportunity); }}><Pencil /> Editar oportunidade</Button>
+                <Button variant="outline" onClick={() => { setSelectedOpportunityId(null); setActivityForm({ opportunityId: String(selectedOpportunity.id), type: "retorno", description: "", dueAt: "" }); setDialog("activity"); }}><Plus /> Nova atividade</Button>
+              </div>
+              <section className="opportunity-history">
+                <div className="history-head"><h3>Histórico de atividades</h3><span>{selectedActivities.length}</span></div>
+                {selectedActivities.length ? selectedActivities.map((activity) => <article key={activity.id} className={activity.completedAt ? "done" : ""}><i /><div><strong>{activity.description}</strong><span>{activity.dueAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(activity.dueAt)) : "Sem prazo"}</span></div><small>{activity.completedAt ? "Concluída" : "Pendente"}</small></article>) : <p>Nenhuma atividade registrada para esta oportunidade.</p>}
+              </section>
+            </div>
+          </>}
+        </SheetContent>
+      </Sheet>
 
       <Dialog
         open={dialog === "opportunity"}
@@ -752,6 +796,18 @@ export default function CrmDashboard({
                 placeholder="0,00"
               />
             </Field>
+            <div className="form-split">
+              <Field label="Probabilidade de fechamento">
+                <select value={opportunityForm.probability} onChange={(event) => setOpportunityForm({ ...opportunityForm, probability: event.target.value })}>
+                  <option value="10">10%</option><option value="25">25%</option><option value="50">50%</option><option value="75">75%</option><option value="90">90%</option><option value="100">100%</option>
+                </select>
+              </Field>
+              <Field label="Temperatura comercial">
+                <select value={opportunityForm.temperature} onChange={(event) => setOpportunityForm({ ...opportunityForm, temperature: event.target.value as "cold" | "warm" | "hot" })}>
+                  <option value="cold">Baixa</option><option value="warm">Média</option><option value="hot">Alta</option>
+                </select>
+              </Field>
+            </div>
             <Field label="Previsão de fechamento">
               <Input
                 type="date"
@@ -1083,6 +1139,7 @@ function Pipeline({
   move,
   add,
   edit,
+  inspect,
   remove,
 }: {
   items: Opportunity[];
@@ -1090,6 +1147,7 @@ function Pipeline({
   move: (stage: string) => void;
   add: () => void;
   edit: (item: Opportunity) => void;
+  inspect: (item: Opportunity) => void;
   remove: (item: Opportunity) => void;
 }) {
   return (
@@ -1141,6 +1199,7 @@ function Pipeline({
                     onDragStart={() => drag(card.id)}
                     key={card.id}
                     className="deal-card"
+                    onClick={() => inspect(card)}
                   >
                     <div className="card-top">
                       <span className={`temperature ${card.temperature}`}>
@@ -1152,8 +1211,8 @@ function Pipeline({
                             : "Baixa"}
                       </span>
                       <span className="record-actions">
-                        <button aria-label={`Editar ${card.title}`} onClick={() => edit(card)}><Pencil /></button>
-                        <button className="danger" aria-label={`Excluir ${card.title}`} onClick={() => remove(card)}><Trash2 /></button>
+                        <button aria-label={`Editar ${card.title}`} onClick={(event) => { event.stopPropagation(); edit(card); }}><Pencil /></button>
+                        <button className="danger" aria-label={`Excluir ${card.title}`} onClick={(event) => { event.stopPropagation(); remove(card); }}><Trash2 /></button>
                       </span>
                     </div>
                     <h3>{card.title}</h3>
