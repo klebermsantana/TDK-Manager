@@ -57,6 +57,13 @@
       "when": 1788570407897,
       "tag": "0007_quiet_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788620703674,
+      "tag": "0008_foamy_baron_zemo",
+      "breakpoints": true
     }
   ]
 }
