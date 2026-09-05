@@ -19,6 +19,7 @@ import {
   Menu,
   MoreHorizontal,
   PackageOpen,
+  ShoppingCart,
   Pencil,
   Phone,
   Plus,
@@ -56,7 +57,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales";
 type Opportunity = {
   id: number;
   title: string;
@@ -115,6 +116,7 @@ type ActivityRecord = {
 type ProposalItem = { id?: number; proposalId?: number; catalogId?: number; category: "material" | "servico"; description: string; quantity: number | string; unitCost: number | string; unitPrice: number | string; total?: number };
 type ProposalRecord = { id: number; opportunityId: number; opportunityTitle: string; companyName: string; number: string; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 type CatalogItem = { id: number; category: "material" | "servico"; code: string | null; description: string; unit: string; cost: number; competitivePrice: number; standardPrice: number; valuePrice: number; active: boolean };
+type SaleRecord = { id:number;proposalId:number;number:string;companyName:string;opportunityTitle:string;status:string;scheduledStart:string|null;scheduledEnd:string|null;total:number;cost:number;createdAt:string;items:ProposalItem[] };
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -174,6 +176,7 @@ export default function CrmDashboard({
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [sales, setSales] = useState<SaleRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
@@ -218,7 +221,7 @@ export default function CrmDashboard({
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -236,6 +239,7 @@ export default function CrmDashboard({
           setActivities(payloads[3].activities);
           setProposals(payloads[4].proposals);
           setCatalog(payloads[5].catalog);
+          setSales(payloads[6].sales);
         }
       } catch (reason) {
         if (active)
@@ -526,6 +530,8 @@ export default function CrmDashboard({
     try { const response = await fetch("/api/proposals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); }
     catch (reason) { setProposals(previous); setError(reason instanceof Error ? reason.message : "Não foi possível atualizar a proposta."); }
   }
+  async function createSale(proposal:ProposalRecord){setSaving(true);setError("");try{const response=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proposalId:proposal.id})});const data=await response.json();if(!response.ok)throw new Error(data.error);setSales(current=>[data.sale,...current]);setSelectedProposalId(null);navigate("sales");}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível gerar o pedido.");}finally{setSaving(false);}}
+  async function updateSale(sale:SaleRecord,changes:Partial<SaleRecord>){const next={...sale,...changes};setSales(current=>current.map(item=>item.id===sale.id?next:item));try{const response=await fetch("/api/sales",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);}catch(reason){setSales(current=>current.map(item=>item.id===sale.id?sale:item));setError(reason instanceof Error?reason.message:"Não foi possível atualizar o pedido.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -575,9 +581,10 @@ export default function CrmDashboard({
     ],
     proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
     catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
+    sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
   };
   const primaryAction =
-    view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -587,7 +594,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "catalog" ? "Novo item" : view === "proposals"
+    view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -667,6 +674,9 @@ export default function CrmDashboard({
           <NavButton active={view === "catalog"} onClick={() => navigate("catalog")} icon={<PackageOpen />}>
             Produtos e serviços <span className="nav-count">{catalog.length}</span>
           </NavButton>
+          <NavButton active={view === "sales"} onClick={() => navigate("sales")} icon={<ShoppingCart />}>
+            Pedidos e vendas <span className="nav-count">{sales.length}</span>
+          </NavButton>
           <NavButton icon={<Users />}>Equipe e permissões</NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
@@ -744,6 +754,8 @@ export default function CrmDashboard({
               inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "sales" ? (
+            <Sales sales={sales} proposals={proposals} update={updateSale} />
           ) : view === "catalog" ? (
             <Catalog catalog={catalog} add={() => openNew("catalog")} edit={editCatalog} remove={deleteCatalog} />
           ) : view === "proposals" ? (
@@ -772,7 +784,7 @@ export default function CrmDashboard({
 
       <Sheet open={Boolean(selectedProposal)} onOpenChange={(open) => { if (!open) setSelectedProposalId(null); }}>
         <SheetContent className="opportunity-sheet proposal-sheet">
-          {selectedProposal && <><SheetHeader className="opportunity-sheet-head"><span className="dialog-kicker">PROPOSTA COMERCIAL</span><SheetTitle>{selectedProposal.number}</SheetTitle><SheetDescription>{selectedProposal.companyName} · {selectedProposal.opportunityTitle}</SheetDescription></SheetHeader><div className="opportunity-sheet-body"><div className="opportunity-value"><span>Valor total</span><strong>{money(selectedProposal.total)}</strong></div><div className="proposal-view-meta"><span>Status<strong>{selectedProposal.status}</strong></span><span>Validade<strong>{selectedProposal.validUntil ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedProposal.validUntil}T12:00:00Z`)) : "Não informada"}</strong></span><span>Subtotal<strong>{money(selectedProposal.subtotal)}</strong></span><span>Desconto<strong>{money(selectedProposal.discount)}</strong></span><span>Custo total<strong>{money(selectedProposal.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitCost||0),0))}</strong></span><span>Margem<strong>{selectedProposal.total?(((selectedProposal.total-selectedProposal.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitCost||0),0))/selectedProposal.total)*100).toFixed(1):"0.0"}%</strong></span></div><div className="sheet-actions"><Button onClick={() => editProposal(selectedProposal)}><Pencil /> Editar proposta</Button><Button variant="outline" onClick={() => { window.location.href = `/proposta?id=${selectedProposal.id}`; }}><Printer /> Gerar PDF</Button></div><section className="proposal-view-items"><h3>Itens da proposta</h3>{selectedProposal.items.map((item, index) => <article key={item.id ?? index}><div><span>{item.category === "material" ? "Material" : "Serviço"}</span><strong>{item.description}</strong><small>{Number(item.quantity)} × {money(Number(item.unitPrice))}</small></div><b>{money(Number(item.total ?? Number(item.quantity) * Number(item.unitPrice)))}</b></article>)}</section>{selectedProposal.notes && <div className="proposal-view-notes"><span>Observações</span><p>{selectedProposal.notes}</p></div>}</div></>}
+          {selectedProposal && <><SheetHeader className="opportunity-sheet-head"><span className="dialog-kicker">PROPOSTA COMERCIAL</span><SheetTitle>{selectedProposal.number}</SheetTitle><SheetDescription>{selectedProposal.companyName} · {selectedProposal.opportunityTitle}</SheetDescription></SheetHeader><div className="opportunity-sheet-body"><div className="opportunity-value"><span>Valor total</span><strong>{money(selectedProposal.total)}</strong></div><div className="proposal-view-meta"><span>Status<strong>{selectedProposal.status}</strong></span><span>Validade<strong>{selectedProposal.validUntil ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedProposal.validUntil}T12:00:00Z`)) : "Não informada"}</strong></span><span>Subtotal<strong>{money(selectedProposal.subtotal)}</strong></span><span>Desconto<strong>{money(selectedProposal.discount)}</strong></span><span>Custo total<strong>{money(selectedProposal.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitCost||0),0))}</strong></span><span>Margem<strong>{selectedProposal.total?(((selectedProposal.total-selectedProposal.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitCost||0),0))/selectedProposal.total)*100).toFixed(1):"0.0"}%</strong></span></div><div className="sheet-actions"><Button onClick={() => editProposal(selectedProposal)}><Pencil /> Editar proposta</Button><Button variant="outline" onClick={() => { window.location.href = `/proposta?id=${selectedProposal.id}`; }}><Printer /> Gerar PDF</Button></div>{selectedProposal.status==="aprovada"&&!sales.some(sale=>sale.proposalId===selectedProposal.id)&&<Button className="sale-button" onClick={()=>createSale(selectedProposal)} disabled={saving}><ShoppingCart /> Gerar pedido</Button>}<section className="proposal-view-items"><h3>Itens da proposta</h3>{selectedProposal.items.map((item, index) => <article key={item.id ?? index}><div><span>{item.category === "material" ? "Material" : "Serviço"}</span><strong>{item.description}</strong><small>{Number(item.quantity)} × {money(Number(item.unitPrice))}</small></div><b>{money(Number(item.total ?? Number(item.quantity) * Number(item.unitPrice)))}</b></article>)}</section>{selectedProposal.notes && <div className="proposal-view-notes"><span>Observações</span><p>{selectedProposal.notes}</p></div>}</div></>}
         </SheetContent>
       </Sheet>
       <Sheet open={Boolean(selectedOpportunity)} onOpenChange={(open) => { if (!open) setSelectedOpportunityId(null); }}>
@@ -1468,6 +1480,11 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Sales({sales,proposals,update}:{sales:SaleRecord[];proposals:ProposalRecord[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void}){
+  if(!sales.length)return <Empty icon={<ShoppingCart/>} title="Nenhum pedido gerado" text="Aprove uma proposta e use o botão Gerar pedido para iniciar a execução." action="Ver propostas aprovadas" onClick={()=>window.location.reload()}/>;
+  const labels:Record<string,string>={aguardando:"Aguardando execução",andamento:"Em andamento",concluido:"Concluído",cancelado:"Cancelado"};
+  return <div className="sales-grid">{sales.map(sale=>{const margin=sale.total?(sale.total-sale.cost)/sale.total*100:0;const proposal=proposals.find(item=>item.id===sale.proposalId);return <article className="sale-card" key={sale.id}><div className="sale-head"><span><ShoppingCart/></span><div><small>{sale.number} · {proposal?.number}</small><h2>{sale.companyName}</h2><p>{sale.opportunityTitle}</p></div><select value={sale.status} onChange={event=>update(sale,{status:event.target.value})}>{Object.entries(labels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></div><div className="sale-values"><span>Venda<strong>{money(sale.total)}</strong></span><span>Custo<strong>{money(sale.cost)}</strong></span><span>Margem<strong>{margin.toFixed(1)}%</strong></span></div><div className="sale-schedule"><Field label="Início previsto"><Input type="date" value={sale.scheduledStart??""} onChange={event=>update(sale,{scheduledStart:event.target.value||null})}/></Field><Field label="Conclusão prevista"><Input type="date" value={sale.scheduledEnd??""} onChange={event=>update(sale,{scheduledEnd:event.target.value||null})}/></Field></div><footer><span>{sale.items.length} itens</span><strong>{labels[sale.status]}</strong></footer></article>;})}</div>;
 }
 function Catalog({catalog,add,edit,remove}:{catalog:CatalogItem[];add:()=>void;edit:(item:CatalogItem)=>void;remove:(item:CatalogItem)=>void}){
   if(!catalog.length)return <Empty icon={<PackageOpen/>} title="Catálogo vazio" text="Cadastre produtos e serviços com custos e três níveis de preço." action="Cadastrar item" onClick={add}/>;
