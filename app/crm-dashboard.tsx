@@ -30,6 +30,7 @@ import {
   TrendingUp,
   Trash2,
   Users,
+  WalletCards,
   X,
   Zap,
 } from "lucide-react";
@@ -57,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables";
 type Opportunity = {
   id: number;
   title: string;
@@ -119,6 +120,8 @@ type CatalogItem = { id: number; category: "material" | "servico"; code: string 
 type SaleRecord = { id:number;proposalId:number;number:string;companyName:string;opportunityTitle:string;status:string;scheduledStart:string|null;scheduledEnd:string|null;total:number;cost:number;createdAt:string;items:ProposalItem[] };
 type BillingRecord={id:number;saleId:number;number:string;saleNumber:string;companyName:string;status:string;paymentTerms:string;installments:number;dueDate:string|null;materialInvoice:string|null;serviceInvoice:string|null;materialAmount:number;serviceAmount:number;total:number;receivedAmount:number;createdAt:string};
 type ReceivableRecord={id:number;billingId:number;billingNumber:string;companyName:string;installmentNumber:number;amount:number;dueDate:string;receivedAmount:number;paymentDate:string|null;interest:number;penalty:number;discount:number;status:string;updatedAt:string};
+type SupplierRecord={id:number;name:string;document:string|null;email:string|null;phone:string|null};
+type PayableRecord={id:number;supplierId:number;supplierName:string;companyId:number|null;companyName:string|null;project:string|null;groupNumber:string;reference:string|null;description:string;category:string;installmentNumber:number;installmentCount:number;amount:number;dueDate:string;paidAmount:number;paymentDate:string|null;status:string;createdAt:string;updatedAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -181,10 +184,12 @@ export default function CrmDashboard({
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [billings,setBillings]=useState<BillingRecord[]>([]);
   const [receivables,setReceivables]=useState<ReceivableRecord[]>([]);
+  const [payables,setPayables]=useState<PayableRecord[]>([]);
+  const [suppliers,setSuppliers]=useState<SupplierRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | null
+    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | "payable" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,13 +224,14 @@ export default function CrmDashboard({
   const [activityForm, setActivityForm] = useState({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
   const [proposalForm, setProposalForm] = useState<{ opportunityId:string;companyId:string;customerOrder:string;requester:string;priceTable:string;validUntil:string;discount:string;notes:string;items:ProposalItem[] }>({ opportunityId:"",companyId:"",customerOrder:"",requester:"",priceTable:"padrao",validUntil:"",discount:"0",notes:"",items:[{category:"servico",description:"",quantity:1,unitCost:"",unitPrice:""}] });
   const [catalogForm, setCatalogForm] = useState({ category: "material" as "material"|"servico", code: "", description: "", unit: "un", cost: "", competitivePrice: "", standardPrice: "", valuePrice: "" });
+  const [payableForm,setPayableForm]=useState({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -246,6 +252,8 @@ export default function CrmDashboard({
           setSales(payloads[6].sales);
           setBillings(payloads[7].billings);
           setReceivables(payloads[8].receivables);
+          setPayables(payloads[9].payables);
+          setSuppliers(payloads[9].suppliers);
         }
       } catch (reason) {
         if (active)
@@ -303,7 +311,7 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog" | "payable") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
@@ -312,6 +320,7 @@ export default function CrmDashboard({
     if (kind === "proposal") setProposalForm({ opportunityId:"",companyId:"",customerOrder:"",requester:"",priceTable:"padrao",validUntil:"",discount:"0",notes:"",items:[{category:"servico",description:"",quantity:1,unitCost:"",unitPrice:""}] });
     if (kind === "proposal") setEditingProposalId(null);
     if (kind === "catalog") { setEditingId(null); setCatalogForm({ category:"material",code:"",description:"",unit:"un",cost:"",competitivePrice:"",standardPrice:"",valuePrice:"" }); }
+    if (kind === "payable") setPayableForm({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -542,6 +551,8 @@ export default function CrmDashboard({
   async function updateBilling(billing:BillingRecord,changes:Partial<BillingRecord>){const next={...billing,...changes};setBillings(current=>current.map(item=>item.id===billing.id?next:item));try{const response=await fetch("/api/billings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);setBillings(current=>current.map(item=>item.id===billing.id?{...next,...data.billing}:item));}catch(reason){setBillings(current=>current.map(item=>item.id===billing.id?billing:item));setError(reason instanceof Error?reason.message:"Não foi possível atualizar o faturamento.");}}
   async function generateReceivables(billing:BillingRecord){try{const response=await fetch("/api/receivables",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({billingId:billing.id})});const data=await response.json();if(!response.ok)throw new Error(data.error);setReceivables(current=>[...current.filter(item=>item.billingId!==billing.id),...data.receivables.map((item:ReceivableRecord)=>({...item,billingNumber:billing.number,companyName:billing.companyName}))]);navigate("receivables");}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível gerar as parcelas.");}}
   async function updateReceivable(item:ReceivableRecord,changes:Partial<ReceivableRecord>){const next={...item,...changes};setReceivables(current=>current.map(entry=>entry.id===item.id?next:entry));try{const response=await fetch("/api/receivables",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);setReceivables(current=>current.map(entry=>entry.id===item.id?{...next,...data.receivable}:entry));setBillings(current=>current.map(billing=>billing.id===item.billingId?{...billing,receivedAmount:data.totalReceived,status:data.totalReceived<=0?"pendente":data.totalReceived<billing.total?"parcial":"recebido"}:billing));}catch(reason){setReceivables(current=>current.map(entry=>entry.id===item.id?item:entry));setError(reason instanceof Error?reason.message:"Não foi possível atualizar a parcela.");}}
+  async function createPayable(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/payables",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...payableForm,amount:Number(payableForm.amount),installments:Number(payableForm.installments)})});const data=await response.json();if(!response.ok)throw new Error(data.error);setPayables(current=>[...current,...data.payables].sort((a,b)=>a.dueDate.localeCompare(b.dueDate)));setSuppliers(current=>current.some(item=>item.id===data.supplier.id)?current:[...current,data.supplier].sort((a,b)=>a.name.localeCompare(b.name)));setDialog(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível cadastrar a conta a pagar.");}finally{setSaving(false);}}
+  async function updatePayable(item:PayableRecord,changes:Partial<PayableRecord>&{action?:string}){const optimistic={...item,...changes};setPayables(current=>current.map(entry=>entry.id===item.id?optimistic:entry));try{const response=await fetch("/api/payables",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...optimistic,...changes})});const data=await response.json();if(!response.ok)throw new Error(data.error);setPayables(current=>current.map(entry=>entry.id===item.id?{...optimistic,...data.payable,supplierName:item.supplierName}:entry));}catch(reason){setPayables(current=>current.map(entry=>entry.id===item.id?item:entry));setError(reason instanceof Error?reason.message:"Não foi possível atualizar a conta a pagar.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -594,9 +605,10 @@ export default function CrmDashboard({
     sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
     billings:["FINANCEIRO • FATURAMENTO","Faturamento","Controle notas fiscais, vencimentos e valores recebidos."],
     receivables:["FINANCEIRO • RECEBIMENTOS","Contas a receber","Acompanhe parcelas, vencimentos e pagamentos."],
+    payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
   };
   const primaryAction =
-    view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -606,7 +618,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -696,6 +708,9 @@ export default function CrmDashboard({
           <NavButton active={view === "receivables"} onClick={() => navigate("receivables")} icon={<CircleDollarSign />}>
             Contas a receber <span className="nav-count">{receivables.filter(item=>item.status!=="recebido").length}</span>
           </NavButton>
+          <NavButton active={view === "payables"} onClick={() => navigate("payables")} icon={<WalletCards />}>
+            Contas a pagar <span className="nav-count">{payables.filter(item=>!['pago','cancelado'].includes(item.status)).length}</span>
+          </NavButton>
           <NavButton icon={<Users />}>Equipe e permissões</NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
@@ -773,6 +788,8 @@ export default function CrmDashboard({
               inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "payables" ? (
+            <Payables payables={payables} update={updatePayable} add={()=>openNew("payable")} />
           ) : view === "receivables" ? (
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
@@ -1122,6 +1139,11 @@ export default function CrmDashboard({
       <Dialog open={dialog === "catalog"} onOpenChange={(open)=>{setDialog(open?"catalog":null);if(!open)setEditingId(null);}}>
         <DialogContent className="dialog catalog-dialog"><DialogHeader><span className="dialog-kicker">CATÁLOGO COMERCIAL</span><DialogTitle>{editingId?"Editar item":"Novo produto ou serviço"}</DialogTitle><DialogDescription>Cadastre o custo e os preços de cada estratégia comercial.</DialogDescription></DialogHeader>
           <form className="form" onSubmit={saveCatalog}><div className="form-split"><Field label="Tipo"><select value={catalogForm.category} onChange={event=>setCatalogForm({...catalogForm,category:event.target.value as "material"|"servico"})}><option value="material">Material</option><option value="servico">Serviço</option></select></Field><Field label="Código"><Input value={catalogForm.code} onChange={event=>setCatalogForm({...catalogForm,code:event.target.value})} placeholder="Ex.: MAT-001" /></Field></div><Field label="Descrição"><Input value={catalogForm.description} onChange={event=>setCatalogForm({...catalogForm,description:event.target.value})} required placeholder="Nome do produto ou serviço" /></Field><div className="form-split"><Field label="Unidade"><Input value={catalogForm.unit} onChange={event=>setCatalogForm({...catalogForm,unit:event.target.value})} /></Field><Field label="Custo (R$)"><Input type="number" min="0" step="0.01" value={catalogForm.cost} onChange={event=>setCatalogForm({...catalogForm,cost:event.target.value})} /></Field></div><div className="catalog-price-fields"><Field label="Competitiva"><Input type="number" min="0" step="0.01" value={catalogForm.competitivePrice} onChange={event=>setCatalogForm({...catalogForm,competitivePrice:event.target.value})} required /></Field><Field label="Padrão"><Input type="number" min="0" step="0.01" value={catalogForm.standardPrice} onChange={event=>setCatalogForm({...catalogForm,standardPrice:event.target.value})} required /></Field><Field label="Valor agregado"><Input type="number" min="0" step="0.01" value={catalogForm.valuePrice} onChange={event=>setCatalogForm({...catalogForm,valuePrice:event.target.value})} required /></Field></div><SaveButton saving={saving}>{editingId?"Salvar alterações":"Cadastrar item"}</SaveButton></form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === "payable"} onOpenChange={(open)=>setDialog(open?"payable":null)}>
+        <DialogContent className="dialog payable-dialog"><DialogHeader><span className="dialog-kicker">FINANCEIRO</span><DialogTitle>Nova conta a pagar</DialogTitle><DialogDescription>Cadastre a despesa e gere os vencimentos automaticamente.</DialogDescription></DialogHeader>
+          <form className="form" onSubmit={createPayable}><Field label="Fornecedor"><Input list="supplier-options" value={payableForm.supplierName} onChange={event=>setPayableForm({...payableForm,supplierName:event.target.value})} placeholder="Digite ou selecione o fornecedor" required/><datalist id="supplier-options">{suppliers.map(item=><option value={item.name} key={item.id}/>)}</datalist></Field><div className="form-split"><Field label="CNPJ / CPF (novo fornecedor)"><Input value={payableForm.supplierDocument} onChange={event=>setPayableForm({...payableForm,supplierDocument:event.target.value})}/></Field><Field label="Telefone"><Input value={payableForm.supplierPhone} onChange={event=>setPayableForm({...payableForm,supplierPhone:event.target.value})}/></Field></div><Field label="E-mail"><Input type="email" value={payableForm.supplierEmail} onChange={event=>setPayableForm({...payableForm,supplierEmail:event.target.value})}/></Field><div className="form-split"><Field label="Cliente (opcional)"><select value={payableForm.companyId} onChange={event=>setPayableForm({...payableForm,companyId:event.target.value})}><option value="">Despesa interna / sem cliente</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select></Field><Field label="Projeto (opcional)"><Input value={payableForm.project} onChange={event=>setPayableForm({...payableForm,project:event.target.value})} placeholder="Nome ou código do projeto"/></Field></div><Field label="Descrição da despesa"><Input value={payableForm.description} onChange={event=>setPayableForm({...payableForm,description:event.target.value})} placeholder="Ex.: Compra de equipamentos" required/></Field><div className="form-split"><Field label="Categoria"><select value={payableForm.category} onChange={event=>setPayableForm({...payableForm,category:event.target.value})}><option value="fornecedor">Fornecedor / materiais</option><option value="servicos">Serviços contratados</option><option value="impostos">Impostos e taxas</option><option value="pessoal">Pessoal</option><option value="estrutura">Estrutura e escritório</option><option value="outros">Outros</option></select></Field><Field label="Documento / referência"><Input value={payableForm.reference} onChange={event=>setPayableForm({...payableForm,reference:event.target.value})} placeholder="NF, boleto ou pedido"/></Field></div><div className="payable-form-values"><Field label="Valor total (R$)"><Input type="number" min="0.01" step="0.01" value={payableForm.amount} onChange={event=>setPayableForm({...payableForm,amount:event.target.value})} required/></Field><Field label="Parcelas"><Input type="number" min="1" max="120" value={payableForm.installments} onChange={event=>setPayableForm({...payableForm,installments:event.target.value})} required/></Field><Field label="Primeiro vencimento"><Input type="date" value={payableForm.dueDate} onChange={event=>setPayableForm({...payableForm,dueDate:event.target.value})} required/></Field></div><SaveButton saving={saving}>Cadastrar conta</SaveButton></form>
         </DialogContent>
       </Dialog>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
@@ -1504,6 +1526,15 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Payables({payables,update,add}:{payables:PayableRecord[];update:(item:PayableRecord,changes:Partial<PayableRecord>&{action?:string})=>void;add:()=>void}){
+ const [filters,setFilters]=useState({supplier:"",client:"",project:"",description:"",status:"",from:"",to:""});const today=new Date().toISOString().slice(0,10);const active=payables.filter(item=>item.status!=="cancelado"),open=active.reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),overdue=active.filter(item=>item.status!=="pago"&&item.dueDate<today).reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),paid=active.reduce((sum,item)=>sum+item.paidAmount,0);const normalized=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();const filtered=payables.filter(item=>{const isOverdue=!['pago','cancelado'].includes(item.status)&&item.dueDate<today;return(!filters.supplier||normalized(item.supplierName).includes(normalized(filters.supplier)))&&(!filters.client||normalized(item.companyName??"").includes(normalized(filters.client)))&&(!filters.project||normalized(item.project??"").includes(normalized(filters.project)))&&(!filters.description||normalized(`${item.description} ${item.reference??""} ${item.groupNumber}`).includes(normalized(filters.description)))&&(!filters.status||(filters.status==="vencido"?isOverdue:item.status===filters.status))&&(!filters.from||item.dueDate>=filters.from)&&(!filters.to||item.dueDate<=filters.to)});
+ if(!payables.length)return <Empty icon={<WalletCards/>} title="Nenhuma conta a pagar" text="Cadastre fornecedores, despesas e vencimentos para organizar os pagamentos." action="Cadastrar primeira conta" onClick={add}/>;
+ return <div className="payables-page"><div className="payable-metrics"><span>A pagar<strong>{money(open)}</strong></span><span>Vencido<strong>{money(overdue)}</strong></span><span>Pago<strong>{money(paid)}</strong></span></div><div className="filter-bar payable-filters"><Field label="Fornecedor"><Input placeholder="Buscar fornecedor" value={filters.supplier} onChange={event=>setFilters({...filters,supplier:event.target.value})}/></Field><Field label="Cliente"><Input placeholder="Buscar cliente" value={filters.client} onChange={event=>setFilters({...filters,client:event.target.value})}/></Field><Field label="Projeto"><Input placeholder="Buscar projeto" value={filters.project} onChange={event=>setFilters({...filters,project:event.target.value})}/></Field><Field label="Descrição / documento"><Input placeholder="Descrição, NF ou referência" value={filters.description} onChange={event=>setFilters({...filters,description:event.target.value})}/></Field><Field label="Status"><select value={filters.status} onChange={event=>setFilters({...filters,status:event.target.value})}><option value="">Todos</option><option value="aberto">Em aberto</option><option value="vencido">Vencido</option><option value="parcial">Parcial</option><option value="pago">Pago</option><option value="cancelado">Cancelado</option></select></Field><Field label="Vencimento de"><Input type="date" value={filters.from} onChange={event=>setFilters({...filters,from:event.target.value})}/></Field><Field label="Até"><Input type="date" value={filters.to} onChange={event=>setFilters({...filters,to:event.target.value})}/></Field></div>{filtered.length?<div className="payable-list">{filtered.map(item=><PayableRow key={`${item.id}-${item.updatedAt}`} item={item} today={today} update={update}/>)}</div>:<div className="filter-empty">Nenhuma conta encontrada com esses filtros.</div>}</div>;
+}
+function PayableRow({item,today,update}:{item:PayableRecord;today:string;update:(item:PayableRecord,changes:Partial<PayableRecord>&{action?:string})=>void}){
+ const [draft,setDraft]=useState(item);const dirty=["reference","description","category","amount","dueDate","paidAmount","paymentDate"].some(key=>draft[key as keyof PayableRecord]!==item[key as keyof PayableRecord]);const overdue=!['pago','cancelado'].includes(item.status)&&item.dueDate<today;const save=()=>update(item,{reference:draft.reference,description:draft.description,category:draft.category,amount:Number(draft.amount),dueDate:draft.dueDate,paidAmount:Number(draft.paidAmount),paymentDate:draft.paymentDate});const reverse=()=>{if(window.confirm("Estornar este pagamento e reabrir a conta?"))update(item,{paidAmount:0,paymentDate:null});};const cancel=()=>{if(window.confirm("Cancelar esta conta a pagar?"))update(item,{action:"cancel"});};const reopen=()=>update(item,{action:"reopen"});
+ return <article className={`payable-card ${overdue?"overdue":""} ${item.status}`}><header><div><small>{item.groupNumber} · Parcela {item.installmentNumber}/{item.installmentCount}</small><h2>{item.supplierName}</h2><p>{item.description}{item.reference?` · ${item.reference}`:""}</p></div><b className={`payable-status ${item.status}`}>{item.status==="pago"?"Pago":item.status==="parcial"?"Parcial":item.status==="cancelado"?"Cancelado":overdue?"Vencido":"Em aberto"}</b></header><div className="payable-fields"><Field label="Descrição"><Input value={draft.description} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,description:e.target.value})}/></Field><Field label="Referência"><Input value={draft.reference??""} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,reference:e.target.value})}/></Field><Field label="Categoria"><select value={draft.category} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,category:e.target.value})}><option value="fornecedor">Fornecedor / materiais</option><option value="servicos">Serviços</option><option value="impostos">Impostos e taxas</option><option value="pessoal">Pessoal</option><option value="estrutura">Estrutura</option><option value="outros">Outros</option></select></Field><Field label="Valor da parcela"><Input type="number" min="0.01" step="0.01" value={draft.amount} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,amount:Number(e.target.value)})}/></Field><Field label="Vencimento"><Input type="date" value={draft.dueDate} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,dueDate:e.target.value})}/></Field><Field label="Valor pago"><Input type="number" min="0" step="0.01" value={draft.paidAmount} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,paidAmount:Number(e.target.value)})}/></Field><Field label="Data do pagamento"><Input type="date" value={draft.paymentDate??""} disabled={item.status==="cancelado"} onChange={e=>setDraft({...draft,paymentDate:e.target.value||null})}/></Field></div><div className="payable-actions">{item.status==="cancelado"?<Button variant="outline" onClick={reopen}>Reabrir conta</Button>:<>{item.paidAmount>0&&<Button variant="outline" className="reverse-payable" disabled={dirty} onClick={reverse}>Estornar pagamento</Button>}<Button variant="outline" className="cancel-payable" disabled={dirty} onClick={cancel}>Cancelar conta</Button>{item.status!=="pago"&&<Button variant="outline" onClick={()=>setDraft({...draft,paidAmount:Number(draft.amount),paymentDate:today})}>Quitar parcela</Button>}<Button variant="outline" disabled={!dirty} onClick={()=>setDraft(item)}>Cancelar edição</Button><Button disabled={!dirty} onClick={save}>Salvar alterações</Button></>}</div></article>;
 }
 function Receivables({receivables,update}:{receivables:ReceivableRecord[];update:(item:ReceivableRecord,changes:Partial<ReceivableRecord>)=>void}){
  const today=new Date().toISOString().slice(0,10);const pending=receivables.filter(item=>item.status!=="recebido");const due=pending.filter(item=>item.dueDate<today).reduce((sum,item)=>sum+item.amount-item.receivedAmount,0);const open=pending.reduce((sum,item)=>sum+item.amount-item.receivedAmount,0);const received=receivables.reduce((sum,item)=>sum+item.receivedAmount,0);
