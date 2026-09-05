@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Loader2, Printer } from "lucide-react";
 
 type ProposalItem = { id: number; category: "material" | "servico"; description: string; quantity: number; unitPrice: number; total: number };
-type Proposal = { id: number; opportunityTitle: string; companyName: string; number: string; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
+type Proposal = { id: number; opportunityTitle: string; companyName: string; number: string; customerOrder:string|null;requester:string|null;status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 
 const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const date = (value: string) => {
@@ -22,7 +22,7 @@ export default function ProposalDocumentPage() {
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id");
-    if (!id) { setError("Proposta não informada."); return; }
+    if (!id) { queueMicrotask(() => setError("Proposta não informada.")); return; }
     fetch(`/api/proposals?id=${encodeURIComponent(id)}`)
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })
       .then((data) => setProposal(data.proposal))
@@ -54,6 +54,7 @@ export default function ProposalDocumentPage() {
         <div><small>VALIDADE</small><strong>{proposal.validUntil ? date(proposal.validUntil) : "Não informada"}</strong></div>
         <div><small>TABELA</small><strong>{proposal.priceTable === "competitiva" ? "Competitiva" : proposal.priceTable === "valor" ? "Valor agregado" : "Padrão"}</strong></div>
       </section>
+      {(proposal.customerOrder||proposal.requester)&&<section className="proposal-reference-document">{proposal.customerOrder&&<span><small>PEDIDO/OC DO CLIENTE</small><strong>{proposal.customerOrder}</strong></span>}{proposal.requester&&<span><small>SOLICITANTE / RESPONSÁVEL</small><strong>{proposal.requester}</strong></span>}</section>}
       {sections.map((section) => {
         const items = proposal.items.filter((item) => item.category === section.key);
         if (!items.length) return null;
