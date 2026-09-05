@@ -25,6 +25,7 @@ import {
   Plus,
   Printer,
   Search,
+  ReceiptText,
   Settings,
   Target,
   TrendingUp,
@@ -57,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings";
 type Opportunity = {
   id: number;
   title: string;
@@ -117,6 +118,7 @@ type ProposalItem = { id?: number; proposalId?: number; catalogId?: number; cate
 type ProposalRecord = { id: number; opportunityId: number; opportunityTitle: string; companyName: string; number: string; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 type CatalogItem = { id: number; category: "material" | "servico"; code: string | null; description: string; unit: string; cost: number; competitivePrice: number; standardPrice: number; valuePrice: number; active: boolean };
 type SaleRecord = { id:number;proposalId:number;number:string;companyName:string;opportunityTitle:string;status:string;scheduledStart:string|null;scheduledEnd:string|null;total:number;cost:number;createdAt:string;items:ProposalItem[] };
+type BillingRecord={id:number;saleId:number;number:string;saleNumber:string;companyName:string;status:string;paymentTerms:string;installments:number;dueDate:string|null;materialInvoice:string|null;serviceInvoice:string|null;materialAmount:number;serviceAmount:number;total:number;receivedAmount:number;createdAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -177,6 +179,7 @@ export default function CrmDashboard({
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [billings,setBillings]=useState<BillingRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
@@ -221,7 +224,7 @@ export default function CrmDashboard({
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -240,6 +243,7 @@ export default function CrmDashboard({
           setProposals(payloads[4].proposals);
           setCatalog(payloads[5].catalog);
           setSales(payloads[6].sales);
+          setBillings(payloads[7].billings);
         }
       } catch (reason) {
         if (active)
@@ -532,6 +536,8 @@ export default function CrmDashboard({
   }
   async function createSale(proposal:ProposalRecord){setSaving(true);setError("");try{const response=await fetch("/api/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({proposalId:proposal.id})});const data=await response.json();if(!response.ok)throw new Error(data.error);setSales(current=>[data.sale,...current]);setSelectedProposalId(null);navigate("sales");}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível gerar o pedido.");}finally{setSaving(false);}}
   async function updateSale(sale:SaleRecord,changes:Partial<SaleRecord>){const next={...sale,...changes};setSales(current=>current.map(item=>item.id===sale.id?next:item));try{const response=await fetch("/api/sales",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);}catch(reason){setSales(current=>current.map(item=>item.id===sale.id?sale:item));setError(reason instanceof Error?reason.message:"Não foi possível atualizar o pedido.");}}
+  async function createBilling(sale:SaleRecord){setSaving(true);try{const response=await fetch("/api/billings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({saleId:sale.id})});const data=await response.json();if(!response.ok)throw new Error(data.error);setBillings(current=>[data.billing,...current]);navigate("billings");}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível preparar o faturamento.");}finally{setSaving(false);}}
+  async function updateBilling(billing:BillingRecord,changes:Partial<BillingRecord>){const next={...billing,...changes};setBillings(current=>current.map(item=>item.id===billing.id?next:item));try{const response=await fetch("/api/billings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);setBillings(current=>current.map(item=>item.id===billing.id?{...next,...data.billing}:item));}catch(reason){setBillings(current=>current.map(item=>item.id===billing.id?billing:item));setError(reason instanceof Error?reason.message:"Não foi possível atualizar o faturamento.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -582,9 +588,10 @@ export default function CrmDashboard({
     proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
     catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
     sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
+    billings:["FINANCEIRO • FATURAMENTO","Faturamento","Controle notas fiscais, vencimentos e valores recebidos."],
   };
   const primaryAction =
-    view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -594,7 +601,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -677,6 +684,10 @@ export default function CrmDashboard({
           <NavButton active={view === "sales"} onClick={() => navigate("sales")} icon={<ShoppingCart />}>
             Pedidos e vendas <span className="nav-count">{sales.length}</span>
           </NavButton>
+          <p>FINANCEIRO</p>
+          <NavButton active={view === "billings"} onClick={() => navigate("billings")} icon={<ReceiptText />}>
+            Faturamento <span className="nav-count">{billings.filter(item=>item.status!=="recebido").length}</span>
+          </NavButton>
           <NavButton icon={<Users />}>Equipe e permissões</NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
@@ -754,8 +765,10 @@ export default function CrmDashboard({
               inspect={(item) => setSelectedOpportunityId(item.id)}
               remove={(item) => setDeleteTarget({ kind: "opportunity", id: item.id, name: item.title })}
             />
+          ) : view === "billings" ? (
+            <Billings billings={billings} update={updateBilling} />
           ) : view === "sales" ? (
-            <Sales sales={sales} proposals={proposals} update={updateSale} />
+            <Sales sales={sales} proposals={proposals} billings={billings} update={updateSale} bill={createBilling} />
           ) : view === "catalog" ? (
             <Catalog catalog={catalog} add={() => openNew("catalog")} edit={editCatalog} remove={deleteCatalog} />
           ) : view === "proposals" ? (
@@ -1481,10 +1494,14 @@ function Contacts({
     </div>
   );
 }
-function Sales({sales,proposals,update}:{sales:SaleRecord[];proposals:ProposalRecord[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void}){
+function Billings({billings,update}:{billings:BillingRecord[];update:(billing:BillingRecord,changes:Partial<BillingRecord>)=>void}){
+ if(!billings.length)return <Empty icon={<ReceiptText/>} title="Nenhum faturamento preparado" text="Conclua um pedido para liberar sua preparação financeira." action="Aguardando pedidos concluídos" onClick={()=>{}}/>;
+ return <div className="billing-list">{billings.map(item=>{const open=Math.max(0,item.total-item.receivedAmount);return <article className="billing-card" key={item.id}><header><div><small>{item.number} · {item.saleNumber}</small><h2>{item.companyName}</h2></div><span className={`billing-status ${item.status}`}>{item.status==="recebido"?"Recebido":item.status==="parcial"?"Parcial":"Pendente"}</span></header><div className="billing-values"><span>Materiais<strong>{money(item.materialAmount)}</strong></span><span>Serviços<strong>{money(item.serviceAmount)}</strong></span><span>Total<strong>{money(item.total)}</strong></span><span>Em aberto<strong>{money(open)}</strong></span></div><div className="billing-fields"><Field label="Condição de pagamento"><Input defaultValue={item.paymentTerms} onBlur={event=>update(item,{paymentTerms:event.target.value})}/></Field><Field label="Parcelas"><Input type="number" min="1" defaultValue={item.installments} onBlur={event=>update(item,{installments:Number(event.target.value)})}/></Field><Field label="Vencimento"><Input type="date" value={item.dueDate??""} onChange={event=>update(item,{dueDate:event.target.value||null})}/></Field><Field label="NF materiais"><Input defaultValue={item.materialInvoice??""} onBlur={event=>update(item,{materialInvoice:event.target.value})}/></Field><Field label="NF serviços"><Input defaultValue={item.serviceInvoice??""} onBlur={event=>update(item,{serviceInvoice:event.target.value})}/></Field><Field label="Valor recebido"><Input type="number" min="0" step="0.01" defaultValue={item.receivedAmount} onBlur={event=>update(item,{receivedAmount:Number(event.target.value)})}/></Field></div></article>;})}</div>;
+}
+function Sales({sales,proposals,billings,update,bill}:{sales:SaleRecord[];proposals:ProposalRecord[];billings:BillingRecord[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void;bill:(sale:SaleRecord)=>void}){
   if(!sales.length)return <Empty icon={<ShoppingCart/>} title="Nenhum pedido gerado" text="Aprove uma proposta e use o botão Gerar pedido para iniciar a execução." action="Ver propostas aprovadas" onClick={()=>window.location.reload()}/>;
   const labels:Record<string,string>={aguardando:"Aguardando execução",andamento:"Em andamento",concluido:"Concluído",cancelado:"Cancelado"};
-  return <div className="sales-grid">{sales.map(sale=>{const margin=sale.total?(sale.total-sale.cost)/sale.total*100:0;const proposal=proposals.find(item=>item.id===sale.proposalId);return <article className="sale-card" key={sale.id}><div className="sale-head"><span><ShoppingCart/></span><div><small>{sale.number} · {proposal?.number}</small><h2>{sale.companyName}</h2><p>{sale.opportunityTitle}</p></div><select value={sale.status} onChange={event=>update(sale,{status:event.target.value})}>{Object.entries(labels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></div><div className="sale-values"><span>Venda<strong>{money(sale.total)}</strong></span><span>Custo<strong>{money(sale.cost)}</strong></span><span>Margem<strong>{margin.toFixed(1)}%</strong></span></div><div className="sale-schedule"><Field label="Início previsto"><Input type="date" value={sale.scheduledStart??""} onChange={event=>update(sale,{scheduledStart:event.target.value||null})}/></Field><Field label="Conclusão prevista"><Input type="date" value={sale.scheduledEnd??""} onChange={event=>update(sale,{scheduledEnd:event.target.value||null})}/></Field></div><footer><span>{sale.items.length} itens</span><strong>{labels[sale.status]}</strong></footer></article>;})}</div>;
+  return <div className="sales-grid">{sales.map(sale=>{const margin=sale.total?(sale.total-sale.cost)/sale.total*100:0;const proposal=proposals.find(item=>item.id===sale.proposalId);return <article className="sale-card" key={sale.id}><div className="sale-head"><span><ShoppingCart/></span><div><small>{sale.number} · {proposal?.number}</small><h2>{sale.companyName}</h2><p>{sale.opportunityTitle}</p></div><select value={sale.status} onChange={event=>update(sale,{status:event.target.value})}>{Object.entries(labels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></div><div className="sale-values"><span>Venda<strong>{money(sale.total)}</strong></span><span>Custo<strong>{money(sale.cost)}</strong></span><span>Margem<strong>{margin.toFixed(1)}%</strong></span></div><div className="sale-schedule"><Field label="Início previsto"><Input type="date" value={sale.scheduledStart??""} onChange={event=>update(sale,{scheduledStart:event.target.value||null})}/></Field><Field label="Conclusão prevista"><Input type="date" value={sale.scheduledEnd??""} onChange={event=>update(sale,{scheduledEnd:event.target.value||null})}/></Field></div>{sale.status==="concluido"&&!billings.some(item=>item.saleId===sale.id)&&<Button className="billing-button" onClick={()=>bill(sale)}><ReceiptText/> Preparar faturamento</Button>}<footer><span>{sale.items.length} itens</span><strong>{labels[sale.status]}</strong></footer></article>;})}</div>;
 }
 function Catalog({catalog,add,edit,remove}:{catalog:CatalogItem[];add:()=>void;edit:(item:CatalogItem)=>void;remove:(item:CatalogItem)=>void}){
   if(!catalog.length)return <Empty icon={<PackageOpen/>} title="Catálogo vazio" text="Cadastre produtos e serviços com custos e três níveis de preço." action="Cadastrar item" onClick={add}/>;
