@@ -16,7 +16,14 @@ async function ensureCurrentUser() {
   if (!auth) return null;
   const db = getDb();
   const [existing] = await db.select().from(users).where(eq(users.email, auth.email)).limit(1);
-  if (existing) return existing;
+  if (existing) {
+    const [administrator] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+    if (!administrator) {
+      const [promoted] = await db.update(users).set({ role: "admin", permissions: JSON.stringify([...validPermissions]), active: true }).where(eq(users.id, existing.id)).returning();
+      return promoted;
+    }
+    return existing;
+  }
   const all = await db.select({ id: users.id }).from(users).limit(1);
   const [created] = await db.insert(users).values({
     externalId: `chatgpt:${auth.email}`,
