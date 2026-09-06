@@ -58,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team";
 type Opportunity = {
   id: number;
   title: string;
@@ -122,6 +122,7 @@ type BillingRecord={id:number;saleId:number;number:string;saleNumber:string;comp
 type ReceivableRecord={id:number;billingId:number;billingNumber:string;companyName:string;installmentNumber:number;amount:number;dueDate:string;receivedAmount:number;paymentDate:string|null;interest:number;penalty:number;discount:number;status:string;updatedAt:string};
 type SupplierRecord={id:number;name:string;document:string|null;email:string|null;phone:string|null};
 type PayableRecord={id:number;supplierId:number;supplierName:string;companyId:number|null;companyName:string|null;project:string|null;groupNumber:string;reference:string|null;description:string;category:string;installmentNumber:number;installmentCount:number;amount:number;dueDate:string;paidAmount:number;paymentDate:string|null;status:string;createdAt:string;updatedAt:string};
+type TeamMember={id:number;email:string;name:string;jobTitle:string|null;role:string;permissions:string[];active:boolean;createdAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -186,10 +187,12 @@ export default function CrmDashboard({
   const [receivables,setReceivables]=useState<ReceivableRecord[]>([]);
   const [payables,setPayables]=useState<PayableRecord[]>([]);
   const [suppliers,setSuppliers]=useState<SupplierRecord[]>([]);
+  const [team,setTeam]=useState<TeamMember[]>([]);
+  const [currentUserId,setCurrentUserId]=useState<number|null>(null);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | "payable" | null
+    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | "payable" | "member" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,13 +228,14 @@ export default function CrmDashboard({
   const [proposalForm, setProposalForm] = useState<{ opportunityId:string;companyId:string;customerOrder:string;requester:string;priceTable:string;validUntil:string;discount:string;notes:string;items:ProposalItem[] }>({ opportunityId:"",companyId:"",customerOrder:"",requester:"",priceTable:"padrao",validUntil:"",discount:"0",notes:"",items:[{category:"servico",description:"",quantity:1,unitCost:"",unitPrice:""}] });
   const [catalogForm, setCatalogForm] = useState({ category: "material" as "material"|"servico", code: "", description: "", unit: "un", cost: "", competitivePrice: "", standardPrice: "", valuePrice: "" });
   const [payableForm,setPayableForm]=useState({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
+  const [memberForm,setMemberForm]=useState({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"] as string[],active:true});
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -254,6 +258,8 @@ export default function CrmDashboard({
           setReceivables(payloads[8].receivables);
           setPayables(payloads[9].payables);
           setSuppliers(payloads[9].suppliers);
+          setTeam(payloads[10].team);
+          setCurrentUserId(payloads[10].currentUserId);
         }
       } catch (reason) {
         if (active)
@@ -311,7 +317,7 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog" | "payable") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog" | "payable" | "member") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
@@ -321,6 +327,7 @@ export default function CrmDashboard({
     if (kind === "proposal") setEditingProposalId(null);
     if (kind === "catalog") { setEditingId(null); setCatalogForm({ category:"material",code:"",description:"",unit:"un",cost:"",competitivePrice:"",standardPrice:"",valuePrice:"" }); }
     if (kind === "payable") setPayableForm({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
+    if (kind === "member") setMemberForm({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"],active:true});
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -553,6 +560,9 @@ export default function CrmDashboard({
   async function updateReceivable(item:ReceivableRecord,changes:Partial<ReceivableRecord>){const next={...item,...changes};setReceivables(current=>current.map(entry=>entry.id===item.id?next:entry));try{const response=await fetch("/api/receivables",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});const data=await response.json();if(!response.ok)throw new Error(data.error);setReceivables(current=>current.map(entry=>entry.id===item.id?{...next,...data.receivable}:entry));setBillings(current=>current.map(billing=>billing.id===item.billingId?{...billing,receivedAmount:data.totalReceived,status:data.totalReceived<=0?"pendente":data.totalReceived<billing.total?"parcial":"recebido"}:billing));}catch(reason){setReceivables(current=>current.map(entry=>entry.id===item.id?item:entry));setError(reason instanceof Error?reason.message:"Não foi possível atualizar a parcela.");}}
   async function createPayable(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/payables",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...payableForm,amount:Number(payableForm.amount),installments:Number(payableForm.installments)})});const data=await response.json();if(!response.ok)throw new Error(data.error);setPayables(current=>[...current,...data.payables].sort((a,b)=>a.dueDate.localeCompare(b.dueDate)));setSuppliers(current=>current.some(item=>item.id===data.supplier.id)?current:[...current,data.supplier].sort((a,b)=>a.name.localeCompare(b.name)));setDialog(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível cadastrar a conta a pagar.");}finally{setSaving(false);}}
   async function updatePayable(item:PayableRecord,changes:Partial<PayableRecord>&{action?:string}){const optimistic={...item,...changes};setPayables(current=>current.map(entry=>entry.id===item.id?optimistic:entry));try{const response=await fetch("/api/payables",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...optimistic,...changes})});const data=await response.json();if(!response.ok)throw new Error(data.error);setPayables(current=>current.map(entry=>entry.id===item.id?{...optimistic,...data.payable,supplierName:item.supplierName}:entry));}catch(reason){setPayables(current=>current.map(entry=>entry.id===item.id?item:entry));setError(reason instanceof Error?reason.message:"Não foi possível atualizar a conta a pagar.");}}
+  function editMember(member:TeamMember){setEditingId(member.id);setMemberForm({name:member.name,email:member.email,jobTitle:member.jobTitle??"",role:member.role,permissions:member.permissions,active:member.active});setDialog("member");}
+  async function saveMember(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/team",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...memberForm,id:editingId})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>(editingId?current.map(member=>member.id===editingId?data.member:member):[...current,data.member]).sort((a,b)=>a.name.localeCompare(b.name)));setDialog(null);setEditingId(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar o usuário.");}finally{setSaving(false);}}
+  async function toggleMember(member:TeamMember){if(member.id===currentUserId)return;const previous=team;setTeam(current=>current.map(item=>item.id===member.id?{...item,active:!item.active}:item));try{const response=await fetch("/api/team",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...member,active:!member.active})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>current.map(item=>item.id===member.id?data.member:item));}catch(reason){setTeam(previous);setError(reason instanceof Error?reason.message:"Não foi possível alterar o acesso.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -606,9 +616,10 @@ export default function CrmDashboard({
     billings:["FINANCEIRO • FATURAMENTO","Faturamento","Controle notas fiscais, vencimentos e valores recebidos."],
     receivables:["FINANCEIRO • RECEBIMENTOS","Contas a receber","Acompanhe parcelas, vencimentos e pagamentos."],
     payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
+    team:["ADMINISTRAÇÃO • ACESSOS","Equipe e permissões","Defina quem pode acessar cada área do TDK Manager."],
   };
   const primaryAction =
-    view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -618,7 +629,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -711,7 +722,7 @@ export default function CrmDashboard({
           <NavButton active={view === "payables"} onClick={() => navigate("payables")} icon={<WalletCards />}>
             Contas a pagar <span className="nav-count">{payables.filter(item=>!['pago','cancelado'].includes(item.status)).length}</span>
           </NavButton>
-          <NavButton icon={<Users />}>Equipe e permissões</NavButton>
+          <NavButton active={view === "team"} onClick={() => navigate("team")} icon={<Users />}>Equipe e permissões <span className="nav-count">{team.filter(member=>member.active).length}</span></NavButton>
           <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
         <div className="sidebar-footer">
@@ -790,6 +801,8 @@ export default function CrmDashboard({
             />
           ) : view === "payables" ? (
             <Payables payables={payables} update={updatePayable} add={()=>openNew("payable")} />
+          ) : view === "team" ? (
+            <Team team={team} currentUserId={currentUserId} add={()=>openNew("member")} edit={editMember} toggle={toggleMember} />
           ) : view === "receivables" ? (
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
@@ -1144,6 +1157,11 @@ export default function CrmDashboard({
       <Dialog open={dialog === "payable"} onOpenChange={(open)=>setDialog(open?"payable":null)}>
         <DialogContent className="dialog payable-dialog"><DialogHeader><span className="dialog-kicker">FINANCEIRO</span><DialogTitle>Nova conta a pagar</DialogTitle><DialogDescription>Cadastre a despesa e gere os vencimentos automaticamente.</DialogDescription></DialogHeader>
           <form className="form" onSubmit={createPayable}><Field label="Fornecedor"><Input list="supplier-options" value={payableForm.supplierName} onChange={event=>setPayableForm({...payableForm,supplierName:event.target.value})} placeholder="Digite ou selecione o fornecedor" required/><datalist id="supplier-options">{suppliers.map(item=><option value={item.name} key={item.id}/>)}</datalist></Field><div className="form-split"><Field label="CNPJ / CPF (novo fornecedor)"><Input value={payableForm.supplierDocument} onChange={event=>setPayableForm({...payableForm,supplierDocument:event.target.value})}/></Field><Field label="Telefone"><Input value={payableForm.supplierPhone} onChange={event=>setPayableForm({...payableForm,supplierPhone:event.target.value})}/></Field></div><Field label="E-mail"><Input type="email" value={payableForm.supplierEmail} onChange={event=>setPayableForm({...payableForm,supplierEmail:event.target.value})}/></Field><div className="form-split"><Field label="Cliente (opcional)"><select value={payableForm.companyId} onChange={event=>setPayableForm({...payableForm,companyId:event.target.value})}><option value="">Despesa interna / sem cliente</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select></Field><Field label="Projeto (opcional)"><Input value={payableForm.project} onChange={event=>setPayableForm({...payableForm,project:event.target.value})} placeholder="Nome ou código do projeto"/></Field></div><Field label="Descrição da despesa"><Input value={payableForm.description} onChange={event=>setPayableForm({...payableForm,description:event.target.value})} placeholder="Ex.: Compra de equipamentos" required/></Field><div className="form-split"><Field label="Categoria"><select value={payableForm.category} onChange={event=>setPayableForm({...payableForm,category:event.target.value})}><option value="fornecedor">Fornecedor / materiais</option><option value="servicos">Serviços contratados</option><option value="impostos">Impostos e taxas</option><option value="pessoal">Pessoal</option><option value="estrutura">Estrutura e escritório</option><option value="outros">Outros</option></select></Field><Field label="Documento / referência"><Input value={payableForm.reference} onChange={event=>setPayableForm({...payableForm,reference:event.target.value})} placeholder="NF, boleto ou pedido"/></Field></div><div className="payable-form-values"><Field label="Valor total (R$)"><Input type="number" min="0.01" step="0.01" value={payableForm.amount} onChange={event=>setPayableForm({...payableForm,amount:event.target.value})} required/></Field><Field label="Parcelas"><Input type="number" min="1" max="120" value={payableForm.installments} onChange={event=>setPayableForm({...payableForm,installments:event.target.value})} required/></Field><Field label="Primeiro vencimento"><Input type="date" value={payableForm.dueDate} onChange={event=>setPayableForm({...payableForm,dueDate:event.target.value})} required/></Field></div><SaveButton saving={saving}>Cadastrar conta</SaveButton></form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === "member"} onOpenChange={(open)=>{setDialog(open?"member":null);if(!open)setEditingId(null);}}>
+        <DialogContent className="dialog member-dialog"><DialogHeader><span className="dialog-kicker">EQUIPE E PERMISSÕES</span><DialogTitle>{editingId?"Editar usuário":"Novo usuário"}</DialogTitle><DialogDescription>Defina o perfil e as áreas que esta pessoa poderá utilizar.</DialogDescription></DialogHeader>
+          <form className="form" onSubmit={saveMember}><div className="form-split"><Field label="Nome completo"><Input value={memberForm.name} onChange={event=>setMemberForm({...memberForm,name:event.target.value})} required/></Field><Field label="E-mail de acesso"><Input type="email" value={memberForm.email} disabled={Boolean(editingId)} onChange={event=>setMemberForm({...memberForm,email:event.target.value})} required/></Field></div><div className="form-split"><Field label="Cargo / função"><Input value={memberForm.jobTitle} onChange={event=>setMemberForm({...memberForm,jobTitle:event.target.value})} placeholder="Ex.: Consultor comercial"/></Field><Field label="Perfil"><select value={memberForm.role} onChange={event=>{const role=event.target.value;setMemberForm({...memberForm,role,permissions:role==="admin"?["crm","proposals","sales","billing","receivables","payables","reports","settings"]:memberForm.permissions})}}><option value="admin">Administrador</option><option value="manager">Gestor</option><option value="seller">Comercial</option><option value="finance">Financeiro</option><option value="viewer">Somente consulta</option></select></Field></div><Field label="Permissões por área"><div className="permission-grid">{[["crm","CRM e atividades"],["proposals","Propostas e catálogo"],["sales","Pedidos e vendas"],["billing","Faturamento"],["receivables","Contas a receber"],["payables","Contas a pagar"],["reports","Relatórios"],["settings","Configurações"]].map(([value,label])=><label key={value} className={memberForm.role==="admin"?"locked":""}><input type="checkbox" checked={memberForm.role==="admin"||memberForm.permissions.includes(value)} disabled={memberForm.role==="admin"} onChange={event=>setMemberForm({...memberForm,permissions:event.target.checked?[...memberForm.permissions,value]:memberForm.permissions.filter(item=>item!==value)})}/><span><CheckCircle2/>{label}</span></label>)}</div></Field>{editingId&&<label className="member-active"><input type="checkbox" checked={memberForm.active} disabled={editingId===currentUserId} onChange={event=>setMemberForm({...memberForm,active:event.target.checked})}/><span>Usuário ativo</span></label>}<SaveButton saving={saving}>{editingId?"Salvar alterações":"Cadastrar usuário"}</SaveButton></form>
         </DialogContent>
       </Dialog>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
@@ -1526,6 +1544,11 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Team({team,currentUserId,add,edit,toggle}:{team:TeamMember[];currentUserId:number|null;add:()=>void;edit:(member:TeamMember)=>void;toggle:(member:TeamMember)=>void}){
+ const [search,setSearch]=useState("");const roleLabels:Record<string,string>={admin:"Administrador",manager:"Gestor",seller:"Comercial",finance:"Financeiro",viewer:"Somente consulta"};const permissionLabels:Record<string,string>={crm:"CRM",proposals:"Propostas",sales:"Pedidos",billing:"Faturamento",receivables:"Recebimentos",payables:"Pagamentos",reports:"Relatórios",settings:"Configurações"};const filtered=team.filter(member=>`${member.name} ${member.email} ${member.jobTitle??""}`.toLowerCase().includes(search.toLowerCase()));
+ if(!team.length)return <Empty icon={<Users/>} title="Nenhum usuário cadastrado" text="Cadastre sua equipe e determine os acessos de cada pessoa." action="Cadastrar primeiro usuário" onClick={add}/>;
+ return <div className="team-page"><div className="team-summary"><span><strong>{team.filter(member=>member.active).length}</strong> usuários ativos</span><span><strong>{team.filter(member=>member.role==="admin").length}</strong> administradores</span><div><Search/><Input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Buscar na equipe"/></div></div><div className="team-grid">{filtered.map(member=><article className={`member-card ${member.active?"":"inactive"}`} key={member.id}><header><span className="member-avatar">{initials(member.name)}</span><div><small>{member.id===currentUserId?"SEU ACESSO":roleLabels[member.role]??member.role}</small><h2>{member.name}</h2><p>{member.jobTitle||"Função não informada"}</p></div><b className={member.active?"active":""}>{member.active?"Ativo":"Inativo"}</b></header><a href={`mailto:${member.email}`}><Mail/>{member.email}</a><div className="member-permissions">{member.permissions.map(permission=><span key={permission}>{permissionLabels[permission]??permission}</span>)}</div><footer><Button variant="outline" onClick={()=>edit(member)}><Pencil/>Editar permissões</Button><Button variant="outline" disabled={member.id===currentUserId} className={member.active?"member-disable":"member-enable"} onClick={()=>toggle(member)}>{member.active?"Desativar":"Reativar"}</Button></footer></article>)}</div>{!filtered.length&&<div className="filter-empty">Nenhum usuário encontrado.</div>}<p className="team-access-note">O cadastro prepara as permissões internas. Para o primeiro acesso, o usuário também precisa ser incluído no compartilhamento do TDK Manager.</p></div>;
 }
 function Payables({payables,update,add}:{payables:PayableRecord[];update:(item:PayableRecord,changes:Partial<PayableRecord>&{action?:string})=>void;add:()=>void}){
  const [filters,setFilters]=useState({supplier:"",client:"",project:"",description:"",status:"",from:"",to:""});const today=new Date().toISOString().slice(0,10);const active=payables.filter(item=>item.status!=="cancelado"),open=active.reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),overdue=active.filter(item=>item.status!=="pago"&&item.dueDate<today).reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),paid=active.reduce((sum,item)=>sum+item.paidAmount,0);const normalized=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();const filtered=payables.filter(item=>{const isOverdue=!['pago','cancelado'].includes(item.status)&&item.dueDate<today;return(!filters.supplier||normalized(item.supplierName).includes(normalized(filters.supplier)))&&(!filters.client||normalized(item.companyName??"").includes(normalized(filters.client)))&&(!filters.project||normalized(item.project??"").includes(normalized(filters.project)))&&(!filters.description||normalized(`${item.description} ${item.reference??""} ${item.groupNumber}`).includes(normalized(filters.description)))&&(!filters.status||(filters.status==="vencido"?isOverdue:item.status===filters.status))&&(!filters.from||item.dueDate>=filters.from)&&(!filters.to||item.dueDate<=filters.to)});
