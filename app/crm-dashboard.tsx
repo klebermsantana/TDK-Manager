@@ -315,6 +315,9 @@ export default function CrmDashboard({
       ),
     [contacts, query],
   );
+  const currentMember=team.find(member=>member.id===currentUserId)??null;
+  const can=(permission:string)=>currentMember?.role==="admin"||Boolean(currentMember?.active&&currentMember?.permissions.includes(permission));
+  useEffect(()=>{if(!currentMember||currentMember.role==="admin")return;const permissionByView:Partial<Record<View,string>>={pipeline:"crm",companies:"crm",contacts:"crm",activities:"crm",goals:"crm",proposals:"proposals",catalog:"proposals",sales:"sales",billings:"billing",receivables:"receivables",payables:"payables",reports:"reports",team:"settings",settings:"settings"};const required=permissionByView[view];if(required&&!can(required))setView("dashboard");},[currentMember,view]);
   const pipeline = items
     .filter((item) => item.stage !== "ganho")
     .reduce((sum, item) => sum + item.value, 0);
@@ -694,7 +697,8 @@ export default function CrmDashboard({
           >
             Dashboard
           </NavButton>
-          <p>COMERCIAL</p>
+          {(can("crm")||can("proposals")||can("sales"))&&<p>COMERCIAL</p>}
+          {can("crm")&&<>
           <NavButton
             active={view === "pipeline"}
             onClick={() => navigate("pipeline")}
@@ -720,38 +724,47 @@ export default function CrmDashboard({
             Atividades <span className="nav-count">{activities.filter((item) => !item.completedAt).length}</span>
           </NavButton>
           <NavButton active={view === "goals"} onClick={() => navigate("goals")} icon={<Target />}>Metas <span className="nav-count">{goals.filter(goal=>goal.active).length}</span></NavButton>
-          <p>GESTÃO</p>
+          </>}
+          {(can("proposals")||can("sales"))&&<p>GESTÃO</p>}
+          {can("proposals")&&<>
           <NavButton active={view === "proposals"} onClick={() => navigate("proposals")} icon={<CircleDollarSign />}>
             Propostas <span className="nav-count">{proposals.length}</span>
           </NavButton>
           <NavButton active={view === "catalog"} onClick={() => navigate("catalog")} icon={<PackageOpen />}>
             Produtos e serviços <span className="nav-count">{catalog.length}</span>
           </NavButton>
+          </>}
+          {can("sales")&&
           <NavButton active={view === "sales"} onClick={() => navigate("sales")} icon={<ShoppingCart />}>
             Pedidos e vendas <span className="nav-count">{sales.length}</span>
-          </NavButton>
-          <p>FINANCEIRO</p>
+          </NavButton>}
+          {(can("billing")||can("receivables")||can("payables"))&&<p>FINANCEIRO</p>}
+          {can("billing")&&
           <NavButton active={view === "billings"} onClick={() => navigate("billings")} icon={<ReceiptText />}>
             Faturamento <span className="nav-count">{billings.filter(item=>item.status!=="recebido").length}</span>
-          </NavButton>
+          </NavButton>}
+          {can("receivables")&&
           <NavButton active={view === "receivables"} onClick={() => navigate("receivables")} icon={<CircleDollarSign />}>
             Contas a receber <span className="nav-count">{receivables.filter(item=>item.status!=="recebido").length}</span>
-          </NavButton>
+          </NavButton>}
+          {can("payables")&&
           <NavButton active={view === "payables"} onClick={() => navigate("payables")} icon={<WalletCards />}>
             Contas a pagar <span className="nav-count">{payables.filter(item=>!['pago','cancelado'].includes(item.status)).length}</span>
-          </NavButton>
+          </NavButton>}
+          {can("settings")&&
           <NavButton active={view === "team"} onClick={() => navigate("team")} icon={<Users />}>Equipe e permissões <span className="nav-count">{team.filter(member=>member.active).length}</span></NavButton>
-          <NavButton active={view === "reports"} onClick={() => navigate("reports")} icon={<TrendingUp />}>Relatórios</NavButton>
+          }
+          {can("reports")&&<NavButton active={view === "reports"} onClick={() => navigate("reports")} icon={<TrendingUp />}>Relatórios</NavButton>}
         </nav>
         <div className="sidebar-footer">
-          <button className={view === "settings" ? "active" : ""} onClick={() => navigate("settings")}>
+          {can("settings")&&<button className={view === "settings" ? "active" : ""} onClick={() => navigate("settings")}>
             <Settings /> Configurações
-          </button>
+          </button>}
           <div className="user">
             <span>{initials(user.name)}</span>
             <div>
               <strong>{user.name}</strong>
-              <small>Administrador</small>
+              <small>{{admin:"Administrador",manager:"Gestor",seller:"Comercial",finance:"Financeiro",viewer:"Consulta"}[currentMember?.role??""]??"Usuário"}</small>
             </div>
             <ChevronDown />
           </div>
