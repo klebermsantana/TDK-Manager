@@ -58,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
 type Opportunity = {
   id: number;
   title: string;
@@ -125,6 +125,7 @@ type ReceivableRecord={id:number;billingId:number;billingNumber:string;companyNa
 type SupplierRecord={id:number;name:string;document:string|null;email:string|null;phone:string|null};
 type PayableRecord={id:number;supplierId:number;supplierName:string;companyId:number|null;companyName:string|null;project:string|null;groupNumber:string;reference:string|null;description:string;category:string;installmentNumber:number;installmentCount:number;amount:number;dueDate:string;paidAmount:number;paymentDate:string|null;status:string;createdAt:string;updatedAt:string};
 type TeamMember={id:number;email:string;name:string;jobTitle:string|null;role:string;permissions:string[];active:boolean;createdAt:string};
+type SystemSettings={id:number;companyName:string;document:string|null;email:string|null;phone:string|null;address:string|null;city:string|null;state:string|null;postalCode:string|null;defaultPriceTable:string;proposalValidityDays:number;defaultPaymentTerms:string;defaultInstallments:number;defaultDueDays:number;proposalNotes:string|null;updatedAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -192,6 +193,7 @@ export default function CrmDashboard({
   const [suppliers,setSuppliers]=useState<SupplierRecord[]>([]);
   const [team,setTeam]=useState<TeamMember[]>([]);
   const [currentUserId,setCurrentUserId]=useState<number|null>(null);
+  const [settings,setSettings]=useState<SystemSettings|null>(null);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
@@ -238,7 +240,7 @@ export default function CrmDashboard({
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team", "/api/settings"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -263,6 +265,7 @@ export default function CrmDashboard({
           setSuppliers(payloads[9].suppliers);
           setTeam(payloads[10].team);
           setCurrentUserId(payloads[10].currentUserId);
+          setSettings(payloads[11].settings);
         }
       } catch (reason) {
         if (active)
@@ -326,7 +329,7 @@ export default function CrmDashboard({
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
     if (kind === "opportunity") setOpportunityForm({ title: "", companyId: "", value: "", expectedCloseAt: "", probability: "10", temperature: "warm" });
     if (kind === "activity") setActivityForm({ opportunityId: "", type: "retorno", description: "", dueAt: "" });
-    if (kind === "proposal") setProposalForm({ opportunityId:"",companyId:"",customerOrder:"",requester:"",priceTable:"padrao",validUntil:"",discount:"0",notes:"",items:[{category:"servico",description:"",quantity:1,unitCost:"",unitPrice:""}] });
+    if (kind === "proposal") { const validUntil=new Date(Date.now()+(settings?.proposalValidityDays??15)*86400000).toISOString().slice(0,10);setProposalForm({ opportunityId:"",companyId:"",customerOrder:"",requester:"",priceTable:settings?.defaultPriceTable??"padrao",validUntil,discount:"0",notes:settings?.proposalNotes??"",items:[{category:"servico",description:"",quantity:1,unitCost:"",unitPrice:""}] }); }
     if (kind === "proposal") setEditingProposalId(null);
     if (kind === "catalog") { setEditingId(null); setCatalogForm({ category:"material",code:"",description:"",unit:"un",cost:"",competitivePrice:"",standardPrice:"",valuePrice:"" }); }
     if (kind === "payable") setPayableForm({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
@@ -566,6 +569,7 @@ export default function CrmDashboard({
   function editMember(member:TeamMember){setEditingId(member.id);setMemberForm({name:member.name,email:member.email,jobTitle:member.jobTitle??"",role:member.role,permissions:member.permissions,active:member.active});setDialog("member");}
   async function saveMember(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/team",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...memberForm,id:editingId})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>(editingId?current.map(member=>member.id===editingId?data.member:member):[...current,data.member]).sort((a,b)=>a.name.localeCompare(b.name)));setDialog(null);setEditingId(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar o usuário.");}finally{setSaving(false);}}
   async function toggleMember(member:TeamMember){if(member.id===currentUserId)return;const previous=team;setTeam(current=>current.map(item=>item.id===member.id?{...item,active:!item.active}:item));try{const response=await fetch("/api/team",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...member,active:!member.active})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>current.map(item=>item.id===member.id?data.member:item));}catch(reason){setTeam(previous);setError(reason instanceof Error?reason.message:"Não foi possível alterar o acesso.");}}
+  async function updateSettings(changes:SystemSettings){setSaving(true);setError("");try{const response=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(changes)});const data=await response.json();if(!response.ok)throw new Error(data.error);setSettings(data.settings);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar as configurações.");throw reason;}finally{setSaving(false);}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -621,9 +625,10 @@ export default function CrmDashboard({
     payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
     team:["ADMINISTRAÇÃO • ACESSOS","Equipe e permissões","Defina quem pode acessar cada área do TDK Manager."],
     reports:["GESTÃO • INDICADORES","Relatórios gerenciais","Analise resultados comerciais e financeiros por período."],
+    settings:["ADMINISTRAÇÃO • PREFERÊNCIAS","Configurações","Centralize os dados da TDK e os padrões utilizados nos cadastros."],
   };
   const primaryAction =
-    view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -633,7 +638,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -730,7 +735,7 @@ export default function CrmDashboard({
           <NavButton active={view === "reports"} onClick={() => navigate("reports")} icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
         <div className="sidebar-footer">
-          <button>
+          <button className={view === "settings" ? "active" : ""} onClick={() => navigate("settings")}>
             <Settings /> Configurações
           </button>
           <div className="user">
@@ -783,7 +788,7 @@ export default function CrmDashboard({
               <p>{titles[view][2]}</p>
             </div>
             <Button className="new-button" onClick={primaryAction}>
-              {view === "reports" ? <Printer /> : <Plus />} {primaryLabel}
+              {view === "reports" ? <Printer /> : view === "settings" ? <Settings /> : <Plus />} {primaryLabel}
             </Button>
           </section>
           {view === "dashboard" || view === "pipeline" ? (
@@ -809,6 +814,8 @@ export default function CrmDashboard({
             <Team team={team} currentUserId={currentUserId} add={()=>openNew("member")} edit={editMember} toggle={toggleMember} />
           ) : view === "reports" ? (
             <Reports opportunities={items} proposals={proposals} sales={sales} billings={billings} receivables={receivables} payables={payables} />
+          ) : view === "settings" ? (
+            settings ? <SettingsPage settings={settings} saving={saving} save={updateSettings} /> : <Loading />
           ) : view === "receivables" ? (
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
@@ -1550,6 +1557,10 @@ function Contacts({
       ))}
     </div>
   );
+}
+function SettingsPage({settings,saving,save}:{settings:SystemSettings;saving:boolean;save:(settings:SystemSettings)=>Promise<void>}){
+ const [draft,setDraft]=useState(settings);const [saved,setSaved]=useState(false);useEffect(()=>setDraft(settings),[settings]);const submit=async(event:React.FormEvent)=>{event.preventDefault();setSaved(false);try{await save(draft);setSaved(true);}catch{}};const dirty=JSON.stringify(draft)!==JSON.stringify(settings);
+ return <form id="settings-form" className="settings-page" onSubmit={submit}><section className="settings-card"><header><span><Building2/></span><div><h2>Dados da empresa</h2><p>Informações institucionais utilizadas nos documentos do sistema.</p></div></header><div className="settings-fields"><Field label="Nome da empresa"><Input value={draft.companyName} onChange={event=>setDraft({...draft,companyName:event.target.value})} required/></Field><Field label="CNPJ"><Input value={draft.document??""} onChange={event=>setDraft({...draft,document:event.target.value})} placeholder="00.000.000/0000-00"/></Field><Field label="E-mail"><Input type="email" value={draft.email??""} onChange={event=>setDraft({...draft,email:event.target.value})}/></Field><Field label="Telefone"><Input value={draft.phone??""} onChange={event=>setDraft({...draft,phone:event.target.value})}/></Field><Field label="Endereço"><Input value={draft.address??""} onChange={event=>setDraft({...draft,address:event.target.value})}/></Field><Field label="Cidade"><Input value={draft.city??""} onChange={event=>setDraft({...draft,city:event.target.value})}/></Field><Field label="Estado"><Input maxLength={2} value={draft.state??""} onChange={event=>setDraft({...draft,state:event.target.value.toUpperCase()})}/></Field><Field label="CEP"><Input value={draft.postalCode??""} onChange={event=>setDraft({...draft,postalCode:event.target.value})}/></Field></div></section><section className="settings-card"><header><span><CircleDollarSign/></span><div><h2>Padrões comerciais</h2><p>Valores sugeridos automaticamente ao iniciar uma nova proposta.</p></div></header><div className="settings-fields commercial"><Field label="Tabela de preços padrão"><select value={draft.defaultPriceTable} onChange={event=>setDraft({...draft,defaultPriceTable:event.target.value})}><option value="competitiva">Competitiva</option><option value="padrao">Padrão</option><option value="valor">Valor agregado</option></select></Field><Field label="Validade da proposta (dias)"><Input type="number" min="1" max="365" value={draft.proposalValidityDays} onChange={event=>setDraft({...draft,proposalValidityDays:Number(event.target.value)})}/></Field><Field label="Observação padrão"><Textarea value={draft.proposalNotes??""} onChange={event=>setDraft({...draft,proposalNotes:event.target.value})} placeholder="Condições ou informações que devem aparecer nas novas propostas."/></Field></div></section><section className="settings-card"><header><span><ReceiptText/></span><div><h2>Padrões financeiros</h2><p>Condição inicial sugerida na preparação de novos faturamentos.</p></div></header><div className="settings-fields financial"><Field label="Condição de pagamento"><select value={draft.defaultPaymentTerms} onChange={event=>setDraft({...draft,defaultPaymentTerms:event.target.value})}><option value="À vista">À vista</option><option value="A prazo">A prazo</option><option value="Parcelado">Parcelado</option></select></Field><Field label="Parcelas padrão"><Input type="number" min="1" max="120" value={draft.defaultInstallments} onChange={event=>setDraft({...draft,defaultInstallments:Number(event.target.value)})}/></Field><Field label="Prazo para vencimento (dias)"><Input type="number" min="0" max="365" value={draft.defaultDueDays} onChange={event=>setDraft({...draft,defaultDueDays:Number(event.target.value)})}/></Field></div></section><footer className="settings-actions">{saved&&!dirty&&<span><CheckCircle2/>Configurações salvas.</span>}<Button type="button" variant="outline" disabled={!dirty||saving} onClick={()=>{setDraft(settings);setSaved(false);}}>Cancelar alterações</Button><Button type="submit" disabled={!dirty||saving}>{saving?<><Loader2 className="spin"/>Salvando...</>:"Salvar configurações"}</Button></footer></form>;
 }
 function Reports({opportunities,proposals,sales,billings,receivables,payables}:{opportunities:Opportunity[];proposals:ProposalRecord[];sales:SaleRecord[];billings:BillingRecord[];receivables:ReceivableRecord[];payables:PayableRecord[]}){
  const today=new Date().toISOString().slice(0,10);const [period,setPeriod]=useState({from:`${today.slice(0,4)}-01-01`,to:today});const inside=(value:string|null|undefined)=>Boolean(value&&value.slice(0,10)>=period.from&&value.slice(0,10)<=period.to);const periodProposals=proposals.filter(item=>inside(item.createdAt)),periodSales=sales.filter(item=>inside(item.createdAt)),periodReceivables=receivables.filter(item=>inside(item.dueDate)),periodPayables=payables.filter(item=>inside(item.dueDate)&&item.status!=="cancelado");const proposed=periodProposals.reduce((sum,item)=>sum+item.total,0),approved=periodProposals.filter(item=>item.status==="aprovada").reduce((sum,item)=>sum+item.total,0),sold=periodSales.reduce((sum,item)=>sum+item.total,0),cost=periodSales.reduce((sum,item)=>sum+item.cost,0),received=periodReceivables.reduce((sum,item)=>sum+item.receivedAmount,0),toReceive=periodReceivables.reduce((sum,item)=>sum+Math.max(0,item.amount+item.interest+item.penalty-item.discount-item.receivedAmount),0),paid=periodPayables.reduce((sum,item)=>sum+item.paidAmount,0),toPay=periodPayables.reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),conversion=periodProposals.length?periodProposals.filter(item=>item.status==="aprovada").length/periodProposals.length*100:0,margin=sold?(sold-cost)/sold*100:0;
