@@ -58,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "goals" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
 type Opportunity = {
   id: number;
   title: string;
@@ -126,6 +126,7 @@ type SupplierRecord={id:number;name:string;document:string|null;email:string|nul
 type PayableRecord={id:number;supplierId:number;supplierName:string;companyId:number|null;companyName:string|null;project:string|null;groupNumber:string;reference:string|null;description:string;category:string;installmentNumber:number;installmentCount:number;amount:number;dueDate:string;paidAmount:number;paymentDate:string|null;status:string;createdAt:string;updatedAt:string};
 type TeamMember={id:number;email:string;name:string;jobTitle:string|null;role:string;permissions:string[];active:boolean;createdAt:string};
 type SystemSettings={id:number;companyName:string;document:string|null;email:string|null;phone:string|null;address:string|null;city:string|null;state:string|null;postalCode:string|null;defaultPriceTable:string;proposalValidityDays:number;defaultPaymentTerms:string;defaultInstallments:number;defaultDueDays:number;proposalNotes:string|null;updatedAt:string};
+type GoalRecord={id:number;name:string;type:string;target:number;startsAt:string;endsAt:string;active:boolean;createdAt:string;updatedAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -194,10 +195,11 @@ export default function CrmDashboard({
   const [team,setTeam]=useState<TeamMember[]>([]);
   const [currentUserId,setCurrentUserId]=useState<number|null>(null);
   const [settings,setSettings]=useState<SystemSettings|null>(null);
+  const [goals,setGoals]=useState<GoalRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | "proposal" | "catalog" | "payable" | "member" | null
+    "opportunity" | "company" | "contact" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -234,13 +236,14 @@ export default function CrmDashboard({
   const [catalogForm, setCatalogForm] = useState({ category: "material" as "material"|"servico", code: "", description: "", unit: "un", cost: "", competitivePrice: "", standardPrice: "", valuePrice: "" });
   const [payableForm,setPayableForm]=useState({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
   const [memberForm,setMemberForm]=useState({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"] as string[],active:true});
+  const [goalForm,setGoalForm]=useState({name:"",type:"sales",target:"",startsAt:`${new Date().getFullYear()}-01-01`,endsAt:`${new Date().getFullYear()}-12-31`,active:true});
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team", "/api/settings"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team", "/api/settings", "/api/goals"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -266,6 +269,7 @@ export default function CrmDashboard({
           setTeam(payloads[10].team);
           setCurrentUserId(payloads[10].currentUserId);
           setSettings(payloads[11].settings);
+          setGoals(payloads[12].goals);
         }
       } catch (reason) {
         if (active)
@@ -323,7 +327,7 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "proposal" | "catalog" | "payable" | "member") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
@@ -334,6 +338,7 @@ export default function CrmDashboard({
     if (kind === "catalog") { setEditingId(null); setCatalogForm({ category:"material",code:"",description:"",unit:"un",cost:"",competitivePrice:"",standardPrice:"",valuePrice:"" }); }
     if (kind === "payable") setPayableForm({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
     if (kind === "member") setMemberForm({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"],active:true});
+    if (kind === "goal") setGoalForm({name:"",type:"sales",target:"",startsAt:`${new Date().getFullYear()}-01-01`,endsAt:`${new Date().getFullYear()}-12-31`,active:true});
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -570,6 +575,9 @@ export default function CrmDashboard({
   async function saveMember(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/team",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...memberForm,id:editingId})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>(editingId?current.map(member=>member.id===editingId?data.member:member):[...current,data.member]).sort((a,b)=>a.name.localeCompare(b.name)));setDialog(null);setEditingId(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar o usuário.");}finally{setSaving(false);}}
   async function toggleMember(member:TeamMember){if(member.id===currentUserId)return;const previous=team;setTeam(current=>current.map(item=>item.id===member.id?{...item,active:!item.active}:item));try{const response=await fetch("/api/team",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...member,active:!member.active})});const data=await response.json();if(!response.ok)throw new Error(data.error);setTeam(current=>current.map(item=>item.id===member.id?data.member:item));}catch(reason){setTeam(previous);setError(reason instanceof Error?reason.message:"Não foi possível alterar o acesso.");}}
   async function updateSettings(changes:SystemSettings){setSaving(true);setError("");try{const response=await fetch("/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(changes)});const data=await response.json();if(!response.ok)throw new Error(data.error);setSettings(data.settings);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar as configurações.");throw reason;}finally{setSaving(false);}}
+  function editGoal(goal:GoalRecord){setEditingId(goal.id);setGoalForm({name:goal.name,type:goal.type,target:String(goal.target),startsAt:goal.startsAt,endsAt:goal.endsAt,active:goal.active});setDialog("goal");}
+  async function saveGoal(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/goals",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...goalForm,id:editingId,target:Number(goalForm.target)})});const data=await response.json();if(!response.ok)throw new Error(data.error);setGoals(current=>(editingId?current.map(goal=>goal.id===editingId?data.goal:goal):[...current,data.goal]).sort((a,b)=>a.startsAt.localeCompare(b.startsAt)));setDialog(null);setEditingId(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar a meta.");}finally{setSaving(false);}}
+  async function deleteGoal(goal:GoalRecord){if(!window.confirm(`Excluir a meta “${goal.name}”?`))return;try{const response=await fetch(`/api/goals?id=${goal.id}`,{method:"DELETE"});const data=await response.json();if(!response.ok)throw new Error(data.error);setGoals(current=>current.filter(item=>item.id!==goal.id));}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível excluir a meta.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -617,6 +625,7 @@ export default function CrmDashboard({
       "Atividades",
       "Organize retornos, reuniões e próximos passos das oportunidades.",
     ],
+    goals:["COMERCIAL • OBJETIVOS","Metas comerciais","Defina objetivos e acompanhe automaticamente a evolução dos resultados."],
     proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
     catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
     sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
@@ -628,7 +637,7 @@ export default function CrmDashboard({
     settings:["ADMINISTRAÇÃO • PREFERÊNCIAS","Configurações","Centralize os dados da TDK e os padrões utilizados nos cadastros."],
   };
   const primaryAction =
-    view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "goals" ? () => openNew("goal") : view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -638,7 +647,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "goals" ? "Nova meta" : view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -710,7 +719,7 @@ export default function CrmDashboard({
           <NavButton active={view === "activities"} onClick={() => navigate("activities")} icon={<CalendarClock />}>
             Atividades <span className="nav-count">{activities.filter((item) => !item.completedAt).length}</span>
           </NavButton>
-          <NavButton icon={<Target />}>Metas</NavButton>
+          <NavButton active={view === "goals"} onClick={() => navigate("goals")} icon={<Target />}>Metas <span className="nav-count">{goals.filter(goal=>goal.active).length}</span></NavButton>
           <p>GESTÃO</p>
           <NavButton active={view === "proposals"} onClick={() => navigate("proposals")} icon={<CircleDollarSign />}>
             Propostas <span className="nav-count">{proposals.length}</span>
@@ -816,6 +825,8 @@ export default function CrmDashboard({
             <Reports opportunities={items} proposals={proposals} sales={sales} billings={billings} receivables={receivables} payables={payables} />
           ) : view === "settings" ? (
             settings ? <SettingsPage settings={settings} saving={saving} save={updateSettings} /> : <Loading />
+          ) : view === "goals" ? (
+            <Goals goals={goals} sales={sales} proposals={proposals} receivables={receivables} add={()=>openNew("goal")} edit={editGoal} remove={deleteGoal} />
           ) : view === "receivables" ? (
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
@@ -1172,6 +1183,7 @@ export default function CrmDashboard({
           <form className="form" onSubmit={createPayable}><Field label="Fornecedor"><Input list="supplier-options" value={payableForm.supplierName} onChange={event=>setPayableForm({...payableForm,supplierName:event.target.value})} placeholder="Digite ou selecione o fornecedor" required/><datalist id="supplier-options">{suppliers.map(item=><option value={item.name} key={item.id}/>)}</datalist></Field><div className="form-split"><Field label="CNPJ / CPF (novo fornecedor)"><Input value={payableForm.supplierDocument} onChange={event=>setPayableForm({...payableForm,supplierDocument:event.target.value})}/></Field><Field label="Telefone"><Input value={payableForm.supplierPhone} onChange={event=>setPayableForm({...payableForm,supplierPhone:event.target.value})}/></Field></div><Field label="E-mail"><Input type="email" value={payableForm.supplierEmail} onChange={event=>setPayableForm({...payableForm,supplierEmail:event.target.value})}/></Field><div className="form-split"><Field label="Cliente (opcional)"><select value={payableForm.companyId} onChange={event=>setPayableForm({...payableForm,companyId:event.target.value})}><option value="">Despesa interna / sem cliente</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select></Field><Field label="Projeto (opcional)"><Input value={payableForm.project} onChange={event=>setPayableForm({...payableForm,project:event.target.value})} placeholder="Nome ou código do projeto"/></Field></div><Field label="Descrição da despesa"><Input value={payableForm.description} onChange={event=>setPayableForm({...payableForm,description:event.target.value})} placeholder="Ex.: Compra de equipamentos" required/></Field><div className="form-split"><Field label="Categoria"><select value={payableForm.category} onChange={event=>setPayableForm({...payableForm,category:event.target.value})}><option value="fornecedor">Fornecedor / materiais</option><option value="servicos">Serviços contratados</option><option value="impostos">Impostos e taxas</option><option value="pessoal">Pessoal</option><option value="estrutura">Estrutura e escritório</option><option value="outros">Outros</option></select></Field><Field label="Documento / referência"><Input value={payableForm.reference} onChange={event=>setPayableForm({...payableForm,reference:event.target.value})} placeholder="NF, boleto ou pedido"/></Field></div><div className="payable-form-values"><Field label="Valor total (R$)"><Input type="number" min="0.01" step="0.01" value={payableForm.amount} onChange={event=>setPayableForm({...payableForm,amount:event.target.value})} required/></Field><Field label="Parcelas"><Input type="number" min="1" max="120" value={payableForm.installments} onChange={event=>setPayableForm({...payableForm,installments:event.target.value})} required/></Field><Field label="Primeiro vencimento"><Input type="date" value={payableForm.dueDate} onChange={event=>setPayableForm({...payableForm,dueDate:event.target.value})} required/></Field></div><SaveButton saving={saving}>Cadastrar conta</SaveButton></form>
         </DialogContent>
       </Dialog>
+      <Dialog open={dialog === "goal"} onOpenChange={(open)=>{setDialog(open?"goal":null);if(!open)setEditingId(null);}}><DialogContent className="dialog"><DialogHeader><span className="dialog-kicker">METAS COMERCIAIS</span><DialogTitle>{editingId?"Editar meta":"Nova meta"}</DialogTitle><DialogDescription>Defina o objetivo e o período de acompanhamento.</DialogDescription></DialogHeader><form className="form" onSubmit={saveGoal}><Field label="Nome da meta"><Input value={goalForm.name} onChange={event=>setGoalForm({...goalForm,name:event.target.value})} placeholder="Ex.: Meta de vendas anual" required/></Field><div className="form-split"><Field label="Indicador"><select value={goalForm.type} onChange={event=>setGoalForm({...goalForm,type:event.target.value})}><option value="sales">Vendas realizadas</option><option value="approved_proposals">Propostas aprovadas</option><option value="received">Valores recebidos</option><option value="margin">Resultado bruto</option></select></Field><Field label="Valor da meta (R$)"><Input type="number" min="0.01" step="0.01" value={goalForm.target} onChange={event=>setGoalForm({...goalForm,target:event.target.value})} required/></Field></div><div className="form-split"><Field label="Início"><Input type="date" value={goalForm.startsAt} onChange={event=>setGoalForm({...goalForm,startsAt:event.target.value})} required/></Field><Field label="Término"><Input type="date" value={goalForm.endsAt} onChange={event=>setGoalForm({...goalForm,endsAt:event.target.value})} required/></Field></div>{editingId&&<label className="member-active"><input type="checkbox" checked={goalForm.active} onChange={event=>setGoalForm({...goalForm,active:event.target.checked})}/><span>Meta ativa</span></label>}<SaveButton saving={saving}>{editingId?"Salvar alterações":"Cadastrar meta"}</SaveButton></form></DialogContent></Dialog>
       <Dialog open={dialog === "member"} onOpenChange={(open)=>{setDialog(open?"member":null);if(!open)setEditingId(null);}}>
         <DialogContent className="dialog member-dialog"><DialogHeader><span className="dialog-kicker">EQUIPE E PERMISSÕES</span><DialogTitle>{editingId?"Editar usuário":"Novo usuário"}</DialogTitle><DialogDescription>Defina o perfil e as áreas que esta pessoa poderá utilizar.</DialogDescription></DialogHeader>
           <form className="form" onSubmit={saveMember}><div className="form-split"><Field label="Nome completo"><Input value={memberForm.name} onChange={event=>setMemberForm({...memberForm,name:event.target.value})} required/></Field><Field label="E-mail de acesso"><Input type="email" value={memberForm.email} disabled={Boolean(editingId)} onChange={event=>setMemberForm({...memberForm,email:event.target.value})} required/></Field></div><div className="form-split"><Field label="Cargo / função"><Input value={memberForm.jobTitle} onChange={event=>setMemberForm({...memberForm,jobTitle:event.target.value})} placeholder="Ex.: Consultor comercial"/></Field><Field label="Perfil"><select value={memberForm.role} onChange={event=>{const role=event.target.value;setMemberForm({...memberForm,role,permissions:role==="admin"?["crm","proposals","sales","billing","receivables","payables","reports","settings"]:memberForm.permissions})}}><option value="admin">Administrador</option><option value="manager">Gestor</option><option value="seller">Comercial</option><option value="finance">Financeiro</option><option value="viewer">Somente consulta</option></select></Field></div><Field label="Permissões por área"><div className="permission-grid">{[["crm","CRM e atividades"],["proposals","Propostas e catálogo"],["sales","Pedidos e vendas"],["billing","Faturamento"],["receivables","Contas a receber"],["payables","Contas a pagar"],["reports","Relatórios"],["settings","Configurações"]].map(([value,label])=><label key={value} className={memberForm.role==="admin"?"locked":""}><input type="checkbox" checked={memberForm.role==="admin"||memberForm.permissions.includes(value)} disabled={memberForm.role==="admin"} onChange={event=>setMemberForm({...memberForm,permissions:event.target.checked?[...memberForm.permissions,value]:memberForm.permissions.filter(item=>item!==value)})}/><span><CheckCircle2/>{label}</span></label>)}</div></Field>{editingId&&<label className="member-active"><input type="checkbox" checked={memberForm.active} disabled={editingId===currentUserId} onChange={event=>setMemberForm({...memberForm,active:event.target.checked})}/><span>Usuário ativo</span></label>}<SaveButton saving={saving}>{editingId?"Salvar alterações":"Cadastrar usuário"}</SaveButton></form>
@@ -1557,6 +1569,11 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Goals({goals,sales,proposals,receivables,add,edit,remove}:{goals:GoalRecord[];sales:SaleRecord[];proposals:ProposalRecord[];receivables:ReceivableRecord[];add:()=>void;edit:(goal:GoalRecord)=>void;remove:(goal:GoalRecord)=>void}){
+ const [showInactive,setShowInactive]=useState(false);const today=new Date().toISOString().slice(0,10);const labels:Record<string,string>={sales:"Vendas realizadas",approved_proposals:"Propostas aprovadas",received:"Valores recebidos",margin:"Resultado bruto"};const current=(goal:GoalRecord)=>goal.type==="sales"?sales.filter(item=>item.createdAt.slice(0,10)>=goal.startsAt&&item.createdAt.slice(0,10)<=goal.endsAt).reduce((sum,item)=>sum+item.total,0):goal.type==="approved_proposals"?proposals.filter(item=>item.status==="aprovada"&&item.createdAt.slice(0,10)>=goal.startsAt&&item.createdAt.slice(0,10)<=goal.endsAt).reduce((sum,item)=>sum+item.total,0):goal.type==="received"?receivables.filter(item=>item.paymentDate&&item.paymentDate>=goal.startsAt&&item.paymentDate<=goal.endsAt).reduce((sum,item)=>sum+item.receivedAmount,0):sales.filter(item=>item.createdAt.slice(0,10)>=goal.startsAt&&item.createdAt.slice(0,10)<=goal.endsAt).reduce((sum,item)=>sum+item.total-item.cost,0);const visible=goals.filter(goal=>showInactive||goal.active);
+ if(!goals.length)return <Empty icon={<Target/>} title="Nenhuma meta cadastrada" text="Crie objetivos comerciais e acompanhe o progresso pelos dados do sistema." action="Cadastrar primeira meta" onClick={add}/>;
+ return <div className="goals-page"><div className="goals-toolbar"><span><strong>{goals.filter(goal=>goal.active).length}</strong> metas ativas</span><label><input type="checkbox" checked={showInactive} onChange={event=>setShowInactive(event.target.checked)}/>Mostrar inativas</label></div><div className="goals-grid">{visible.map(goal=>{const value=current(goal),percent=Math.min(100,value/goal.target*100),status=!goal.active?"inactive":value>=goal.target?"done":goal.endsAt<today?"late":"running";return <article className={`goal-card ${status}`} key={goal.id}><header><span><Target/></span><div><small>{labels[goal.type]??goal.type}</small><h2>{goal.name}</h2></div><b>{status==="done"?"Atingida":status==="late"?"Encerrada":status==="inactive"?"Inativa":"Em andamento"}</b></header><div className="goal-values"><span>Realizado<strong>{money(value)}</strong></span><span>Meta<strong>{money(goal.target)}</strong></span><span>Falta<strong>{money(Math.max(0,goal.target-value))}</strong></span></div><div className="goal-progress"><i><b style={{width:`${percent}%`}}/></i><span>{percent.toFixed(1)}%</span></div><p><CalendarClock/>{new Intl.DateTimeFormat("pt-BR",{timeZone:"UTC"}).format(new Date(`${goal.startsAt}T12:00:00Z`))} a {new Intl.DateTimeFormat("pt-BR",{timeZone:"UTC"}).format(new Date(`${goal.endsAt}T12:00:00Z`))}</p><footer><Button variant="outline" onClick={()=>edit(goal)}><Pencil/>Editar</Button><button className="goal-delete" onClick={()=>remove(goal)} aria-label={`Excluir ${goal.name}`}><Trash2/></button></footer></article>})}</div></div>;
 }
 function SettingsPage({settings,saving,save}:{settings:SystemSettings;saving:boolean;save:(settings:SystemSettings)=>Promise<void>}){
  const [draft,setDraft]=useState(settings);const [saved,setSaved]=useState(false);useEffect(()=>setDraft(settings),[settings]);const submit=async(event:React.FormEvent)=>{event.preventDefault();setSaved(false);try{await save(draft);setSaved(true);}catch{}};const dirty=JSON.stringify(draft)!==JSON.stringify(settings);
