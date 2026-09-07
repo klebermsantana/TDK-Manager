@@ -113,6 +113,13 @@
       "when": 1788792311665,
       "tag": "0015_spooky_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1788796123442,
+      "tag": "0016_smart_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }
