@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import { companies, contacts, opportunities } from "@/db/schema";
 
@@ -14,6 +15,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied=await requirePermission("crm"); if(denied)return denied;
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const denied=await requirePermission("crm"); if(denied)return denied;
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
@@ -54,6 +57,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const denied=await requirePermission("crm"); if(denied)return denied;
   const user = await getChatGPTUser();
   if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
