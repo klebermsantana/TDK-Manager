@@ -99,6 +99,13 @@
       "when": 1788658765383,
       "tag": "0013_late_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788791595667,
+      "tag": "0014_odd_franklin_storm",
+      "breakpoints": true
     }
   ]
 }
