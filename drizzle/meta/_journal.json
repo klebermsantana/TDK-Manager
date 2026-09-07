@@ -106,6 +106,13 @@
       "when": 1788791595667,
       "tag": "0014_odd_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788792311665,
+      "tag": "0015_spooky_magma",
+      "breakpoints": true
     }
   ]
 }
