@@ -5,6 +5,7 @@ import { users } from "@/db/schema";
 
 const validRoles = new Set(["admin", "manager", "seller", "finance", "viewer"]);
 const validPermissions = new Set(["crm", "proposals", "sales", "billing", "receivables", "payables", "reports", "settings"]);
+const primaryAdministratorEmail = "kleber.santana@tecnodesk.com.br";
 const normalizePermissions = (value: unknown) => {
   const list = Array.isArray(value) ? value.map(String) : [];
   return [...new Set(list.filter((item) => validPermissions.has(item)))];
@@ -17,6 +18,10 @@ async function ensureCurrentUser() {
   const db = getDb();
   const [existing] = await db.select().from(users).where(eq(users.email, auth.email)).limit(1);
   if (existing) {
+    if (auth.email.toLowerCase() === primaryAdministratorEmail && (existing.role !== "admin" || !existing.active)) {
+      const [promoted] = await db.update(users).set({ role: "admin", permissions: JSON.stringify([...validPermissions]), active: true }).where(eq(users.id, existing.id)).returning();
+      return promoted;
+    }
     const [administrator] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
     if (!administrator) {
       const [promoted] = await db.update(users).set({ role: "admin", permissions: JSON.stringify([...validPermissions]), active: true }).where(eq(users.id, existing.id)).returning();
@@ -29,8 +34,8 @@ async function ensureCurrentUser() {
     externalId: `chatgpt:${auth.email}`,
     email: auth.email,
     name: auth.fullName ?? auth.email,
-    role: all.length ? "seller" : "admin",
-    permissions: JSON.stringify(all.length ? ["crm", "proposals", "sales"] : [...validPermissions]),
+    role: !all.length || auth.email.toLowerCase() === primaryAdministratorEmail ? "admin" : "seller",
+    permissions: JSON.stringify(!all.length || auth.email.toLowerCase() === primaryAdministratorEmail ? [...validPermissions] : ["crm", "proposals", "sales"]),
   }).returning();
   return created;
 }
