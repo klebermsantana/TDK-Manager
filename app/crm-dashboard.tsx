@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  ClipboardList,
   ChevronDown,
   CircleDollarSign,
   Clock3,
@@ -58,7 +59,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "goals" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "goals" | "proposals" | "catalog" | "sales" | "projects" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
 type Opportunity = {
   id: number;
   title: string;
@@ -119,7 +120,7 @@ type ActivityRecord = {
 type ProposalItem = { id?: number; proposalId?: number; catalogId?: number; category: "material" | "servico"; description: string; quantity: number | string; unitCost: number | string; unitPrice: number | string; total?: number };
 type ProposalRecord = { id: number; opportunityId: number|null; companyId:number|null; opportunityTitle: string; companyName: string; number: string; customerOrder:string|null;requester:string|null; status: string; priceTable: string; validUntil: string | null; discount: number; subtotal: number; total: number; notes: string | null; createdAt: string; items: ProposalItem[] };
 type CatalogItem = { id: number; category: "material" | "servico"; code: string | null; description: string; unit: string; cost: number; competitivePrice: number; standardPrice: number; valuePrice: number; active: boolean };
-type SaleRecord = { id:number;proposalId:number;number:string;companyName:string;opportunityTitle:string;status:string;scheduledStart:string|null;scheduledEnd:string|null;total:number;cost:number;createdAt:string;items:ProposalItem[] };
+type SaleRecord = { id:number;proposalId:number;number:string;companyName:string;opportunityTitle:string;status:string;scheduledStart:string|null;scheduledEnd:string|null;projectManager:string|null;progress:number;projectNotes:string|null;total:number;cost:number;createdAt:string;updatedAt:string;items:ProposalItem[] };
 type BillingRecord={id:number;saleId:number;number:string;saleNumber:string;companyName:string;status:string;paymentTerms:string;installments:number;dueDate:string|null;materialInvoice:string|null;serviceInvoice:string|null;materialAmount:number;serviceAmount:number;total:number;receivedAmount:number;createdAt:string};
 type ReceivableRecord={id:number;billingId:number;billingNumber:string;companyName:string;installmentNumber:number;amount:number;dueDate:string;receivedAmount:number;paymentDate:string|null;interest:number;penalty:number;discount:number;status:string;updatedAt:string};
 type SupplierRecord={id:number;name:string;document:string|null;email:string|null;phone:string|null};
@@ -318,7 +319,7 @@ export default function CrmDashboard({
   );
   const currentMember=team.find(member=>member.id===currentUserId)??null;
   const can=(permission:string)=>currentMember?.role==="admin"||Boolean(currentMember?.active&&currentMember?.permissions.includes(permission));
-  useEffect(()=>{if(!currentMember||currentMember.role==="admin")return;const permissionByView:Partial<Record<View,string>>={pipeline:"crm",companies:"crm",contacts:"crm",activities:"crm",goals:"crm",proposals:"proposals",catalog:"proposals",sales:"sales",billings:"billing",receivables:"receivables",payables:"payables",reports:"reports",team:"settings",settings:"settings"};const required=permissionByView[view];if(required&&!can(required))setView("dashboard");},[currentMember,view]);
+  useEffect(()=>{if(!currentMember||currentMember.role==="admin")return;const permissionByView:Partial<Record<View,string>>={pipeline:"crm",companies:"crm",contacts:"crm",activities:"crm",goals:"crm",proposals:"proposals",catalog:"proposals",sales:"sales",projects:"sales",billings:"billing",receivables:"receivables",payables:"payables",reports:"reports",team:"settings",settings:"settings"};const required=permissionByView[view];if(required&&!can(required))setView("dashboard");},[currentMember,view]);
   const pipeline = items
     .filter((item) => item.stage !== "ganho")
     .reduce((sum, item) => sum + item.value, 0);
@@ -633,6 +634,7 @@ export default function CrmDashboard({
     proposals: ["COMERCIAL • PROPOSTAS", "Propostas comerciais", "Monte valores de materiais e serviços vinculados às oportunidades."],
     catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
     sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
+    projects: ["OPERAÇÃO • EXECUÇÃO", "Projetos", "Planeje responsáveis, prazos e evolução dos pedidos em execução."],
     billings:["FINANCEIRO • FATURAMENTO","Faturamento","Controle notas fiscais, vencimentos e valores recebidos."],
     receivables:["FINANCEIRO • RECEBIMENTOS","Contas a receber","Acompanhe parcelas, vencimentos e pagamentos."],
     payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
@@ -641,7 +643,7 @@ export default function CrmDashboard({
     settings:["ADMINISTRAÇÃO • PREFERÊNCIAS","Configurações","Centralize os dados da TDK e os padrões utilizados nos cadastros."],
   };
   const primaryAction =
-    view === "goals" ? () => openNew("goal") : view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "goals" ? () => openNew("goal") : view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "projects" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -651,7 +653,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "goals" ? "Nova meta" : view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "goals" ? "Nova meta" : view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "projects" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -683,6 +685,9 @@ export default function CrmDashboard({
     ...(can("payables") ? payables
       .filter(payable => !["pago", "cancelado"].includes(payable.status) && payable.dueDate < todayKey)
       .map(payable => ({ id: `payable-${payable.id}`, title: "Pagamento vencido", detail: `${payable.description} • ${payable.supplierName} • ${money(payable.amount - payable.paidAmount)}`, view: "payables" as View, tone: "danger" as const })) : []),
+    ...(can("sales") ? sales
+      .filter(sale => sale.scheduledEnd && sale.scheduledEnd < todayKey && !["concluido", "cancelado"].includes(sale.status))
+      .map(sale => ({ id: `project-${sale.id}`, title: "Projeto atrasado", detail: `${sale.number} • ${sale.companyName} • ${sale.progress || 0}% concluído`, view: "projects" as View, tone: "danger" as const })) : []),
   ];
 
   return (
@@ -755,6 +760,10 @@ export default function CrmDashboard({
           {can("sales")&&
           <NavButton active={view === "sales"} onClick={() => navigate("sales")} icon={<ShoppingCart />}>
             Pedidos e vendas <span className="nav-count">{sales.length}</span>
+          </NavButton>}
+          {can("sales")&&
+          <NavButton active={view === "projects"} onClick={() => navigate("projects")} icon={<ClipboardList />}>
+            Projetos <span className="nav-count">{sales.filter(item=>!["concluido","cancelado"].includes(item.status)).length}</span>
           </NavButton>}
           {(can("billing")||can("receivables")||can("payables"))&&<p>FINANCEIRO</p>}
           {can("billing")&&
@@ -837,7 +846,7 @@ export default function CrmDashboard({
               <p>{titles[view][2]}</p>
             </div>
             <Button className="new-button" onClick={primaryAction}>
-              {view === "reports" ? <Printer /> : view === "settings" ? <Settings /> : <Plus />} {primaryLabel}
+              {view === "reports" ? <Printer /> : view === "settings" ? <Settings /> : view === "projects" ? <ShoppingCart /> : <Plus />} {primaryLabel}
             </Button>
           </section>
           {view === "dashboard" || view === "pipeline" ? (
@@ -871,6 +880,8 @@ export default function CrmDashboard({
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
             <Billings billings={billings} update={updateBilling} generate={generateReceivables} />
+          ) : view === "projects" ? (
+            <Projects sales={sales} update={updateSale} />
           ) : view === "sales" ? (
             <Sales sales={sales} proposals={proposals} billings={billings} update={updateSale} bill={createBilling} />
           ) : view === "catalog" ? (
@@ -1661,6 +1672,18 @@ function BillingCard({item,update,generate}:{item:BillingRecord;update:(billing:
  const fields:(keyof BillingRecord)[]=["paymentTerms","installments","dueDate","materialInvoice","serviceInvoice"];const dirty=fields.some(key=>draft[key]!==item[key]);const open=Math.max(0,item.total-item.receivedAmount);
  const save=()=>update(item,{paymentTerms:draft.paymentTerms,installments:Math.max(1,Number(draft.installments)||1),dueDate:draft.dueDate,materialInvoice:draft.materialInvoice,serviceInvoice:draft.serviceInvoice});
  return <article className="billing-card"><header><div><small>{item.number} · {item.saleNumber}</small><h2>{item.companyName}</h2></div><span className={`billing-status ${item.status}`}>{item.status==="recebido"?"Recebido":item.status==="parcial"?"Parcial":"Pendente"}</span></header><div className="billing-values"><span>Materiais<strong>{money(item.materialAmount)}</strong></span><span>Serviços<strong>{money(item.serviceAmount)}</strong></span><span>Total<strong>{money(item.total)}</strong></span><span>Em aberto<strong>{money(open)}</strong></span></div><div className="billing-fields"><Field label="Condição de pagamento"><select value={draft.paymentTerms} onChange={event=>setDraft({...draft,paymentTerms:event.target.value})}><option value="À vista">À vista</option><option value="A prazo">A prazo</option><option value="Parcelado">Parcelado</option></select></Field><Field label="Parcelas"><Input type="number" min="1" value={draft.installments} onChange={event=>setDraft({...draft,installments:Number(event.target.value)})}/></Field><Field label="1º vencimento"><Input type="date" value={draft.dueDate??""} onChange={event=>setDraft({...draft,dueDate:event.target.value||null})}/></Field><Field label="NF materiais"><Input value={draft.materialInvoice??""} onChange={event=>setDraft({...draft,materialInvoice:event.target.value})}/></Field><Field label="NF serviços"><Input value={draft.serviceInvoice??""} onChange={event=>setDraft({...draft,serviceInvoice:event.target.value})}/></Field><Field label="Valor recebido"><Input value={money(item.receivedAmount)} disabled/></Field></div><div className="billing-actions"><Button disabled={!dirty} onClick={save}>Salvar alterações</Button><Button variant="outline" disabled={!dirty} onClick={()=>setDraft(item)}>Cancelar</Button><Button className="receivable-button" disabled={dirty} onClick={()=>generate(item)}>Gerar / atualizar parcelas</Button></div>{dirty&&<small className="billing-warning">Salve ou cancele as alterações antes de atualizar as parcelas.</small>}</article>;
+}
+function Projects({sales,update}:{sales:SaleRecord[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void}){
+ const [filters,setFilters]=useState({search:"",status:"ativos",manager:""});
+ const normalized=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+ const visible=sales.filter(item=>(!filters.search||normalized(`${item.number} ${item.companyName} ${item.opportunityTitle}`).includes(normalized(filters.search)))&&(filters.status==="todos"||(filters.status==="ativos"?!["concluido","cancelado"].includes(item.status):item.status===filters.status))&&(!filters.manager||normalized(item.projectManager??"").includes(normalized(filters.manager))));
+ if(!sales.length)return <Empty icon={<ClipboardList/>} title="Nenhum projeto disponível" text="Os projetos são criados automaticamente a partir dos pedidos aprovados." action="Ver pedidos" onClick={()=>{}}/>;
+ return <><div className="project-summary"><span><strong>{sales.filter(item=>!["concluido","cancelado"].includes(item.status)).length}</strong> projetos ativos</span><span><strong>{sales.filter(item=>item.status==="andamento").length}</strong> em andamento</span><span><strong>{sales.filter(item=>item.scheduledEnd&&item.scheduledEnd<new Date().toISOString().slice(0,10)&&!["concluido","cancelado"].includes(item.status)).length}</strong> atrasados</span></div><div className="filter-bar project-filters"><Field label="Pedido, cliente ou projeto"><Input value={filters.search} onChange={event=>setFilters({...filters,search:event.target.value})} placeholder="Buscar projeto..."/></Field><Field label="Responsável"><Input value={filters.manager} onChange={event=>setFilters({...filters,manager:event.target.value})} placeholder="Nome do responsável"/></Field><Field label="Status"><select value={filters.status} onChange={event=>setFilters({...filters,status:event.target.value})}><option value="ativos">Projetos ativos</option><option value="todos">Todos</option><option value="aguardando">Aguardando</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select></Field></div>{visible.length?<div className="project-grid">{visible.map(item=><ProjectCard key={`${item.id}-${item.updatedAt??""}`} item={item} update={update}/>)}</div>:<div className="filter-empty">Nenhum projeto encontrado com esses filtros.</div>}</>;
+}
+function ProjectCard({item,update}:{item:SaleRecord;update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void}){
+ const [draft,setDraft]=useState(item);const today=new Date().toISOString().slice(0,10);const overdue=Boolean(item.scheduledEnd&&item.scheduledEnd<today&&!["concluido","cancelado"].includes(item.status));const fields:(keyof SaleRecord)[]=["status","scheduledStart","scheduledEnd","projectManager","progress","projectNotes"];const dirty=fields.some(key=>draft[key]!==item[key]);
+ const save=()=>update(item,{status:draft.status,scheduledStart:draft.scheduledStart,scheduledEnd:draft.scheduledEnd,projectManager:draft.projectManager,progress:Number(draft.progress),projectNotes:draft.projectNotes});
+ return <article className={`project-card ${overdue?"overdue":""}`}><header><span><ClipboardList/></span><div><small>{item.number}</small><h2>{item.companyName}</h2><p>{item.opportunityTitle}</p></div><b className={`project-status ${draft.status}`}>{overdue?"Atrasado":draft.status==="andamento"?"Em andamento":draft.status==="concluido"?"Concluído":draft.status==="cancelado"?"Cancelado":"Aguardando"}</b></header><div className="project-progress"><div><span>Progresso do projeto</span><strong>{Number(draft.progress)||0}%</strong></div><i><b style={{width:`${Math.min(100,Math.max(0,Number(draft.progress)||0))}%`}}/></i><input aria-label="Progresso do projeto" type="range" min="0" max="100" step="5" value={Number(draft.progress)||0} onChange={event=>setDraft({...draft,progress:Number(event.target.value),status:Number(event.target.value)>0&&draft.status==="aguardando"?"andamento":draft.status})}/></div><div className="project-fields"><Field label="Status"><select value={draft.status} onChange={event=>setDraft({...draft,status:event.target.value,progress:event.target.value==="concluido"?100:draft.progress})}><option value="aguardando">Aguardando</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select></Field><Field label="Responsável"><Input value={draft.projectManager??""} onChange={event=>setDraft({...draft,projectManager:event.target.value})} placeholder="Nome do responsável"/></Field><Field label="Início"><Input type="date" value={draft.scheduledStart??""} onChange={event=>setDraft({...draft,scheduledStart:event.target.value||null})}/></Field><Field label="Conclusão prevista"><Input type="date" value={draft.scheduledEnd??""} onChange={event=>setDraft({...draft,scheduledEnd:event.target.value||null})}/></Field></div><Field label="Observações da execução"><Textarea value={draft.projectNotes??""} onChange={event=>setDraft({...draft,projectNotes:event.target.value})} placeholder="Pendências, alinhamentos e informações importantes do projeto"/></Field><footer><span>{money(item.total)} · {item.items.length} itens</span><div><Button variant="outline" disabled={!dirty} onClick={()=>setDraft(item)}>Cancelar</Button><Button disabled={!dirty} onClick={save}>Salvar projeto</Button></div></footer></article>;
 }
 function Sales({sales,proposals,billings,update,bill}:{sales:SaleRecord[];proposals:ProposalRecord[];billings:BillingRecord[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void;bill:(sale:SaleRecord)=>void}){
   if(!sales.length)return <Empty icon={<ShoppingCart/>} title="Nenhum pedido gerado" text="Aprove uma proposta e use o botão Gerar pedido para iniciar a execução." action="Ver propostas aprovadas" onClick={()=>window.location.reload()}/>;
