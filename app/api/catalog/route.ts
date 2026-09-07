@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import { catalogItems } from "@/db/schema";
 
@@ -18,16 +19,19 @@ export async function GET() {
   catch { return Response.json({ error: "Não foi possível carregar o catálogo." }, { status: 503 }); }
 }
 export async function POST(request: Request) {
+  const denied=await requirePermission("proposals"); if(denied)return denied;
   if (!await getChatGPTUser()) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try { const item=values(await request.json()); if(!valid(item)) return Response.json({error:"Revise os dados e preços do item."},{status:400}); const [created]=await getDb().insert(catalogItems).values(item).returning(); return Response.json({item:created},{status:201}); }
   catch { return Response.json({error:"Não foi possível cadastrar o item."},{status:500}); }
 }
 export async function PATCH(request: Request) {
+  const denied=await requirePermission("proposals"); if(denied)return denied;
   if (!await getChatGPTUser()) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try { const payload=await request.json() as Record<string,unknown>; const id=Number(payload.id); const item=values(payload); if(!id||!valid(item)) return Response.json({error:"Item inválido."},{status:400}); const [updated]=await getDb().update(catalogItems).set({...item,updatedAt:new Date().toISOString()}).where(eq(catalogItems.id,id)).returning(); return updated?Response.json({item:updated}):Response.json({error:"Item não encontrado."},{status:404}); }
   catch { return Response.json({error:"Não foi possível atualizar o item."},{status:500}); }
 }
 export async function DELETE(request: Request) {
+  const denied=await requirePermission("proposals"); if(denied)return denied;
   if (!await getChatGPTUser()) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try { const id=Number(new URL(request.url).searchParams.get("id")); if(!id)return Response.json({error:"Item inválido."},{status:400}); const [deleted]=await getDb().delete(catalogItems).where(eq(catalogItems.id,id)).returning(); return deleted?Response.json({success:true}):Response.json({error:"Item não encontrado."},{status:404}); }
   catch { return Response.json({error:"Não foi possível excluir o item."},{status:500}); }
