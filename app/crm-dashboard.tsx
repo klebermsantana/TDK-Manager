@@ -58,7 +58,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "proposals" | "catalog" | "sales" | "billings" | "receivables" | "payables" | "team" | "reports";
 type Opportunity = {
   id: number;
   title: string;
@@ -72,6 +72,7 @@ type Opportunity = {
   probability: number;
   stage: string;
   temperature: "hot" | "warm" | "cold";
+  createdAt: string;
 };
 type ApiOpportunity = {
   id: number;
@@ -84,6 +85,7 @@ type ApiOpportunity = {
   stage: string;
   probability: number;
   temperature: "hot" | "warm" | "cold";
+  createdAt: string;
 };
 type Company = {
   id: number;
@@ -168,6 +170,7 @@ const fromApi = (item: ApiOpportunity): Opportunity => ({
   probability: item.probability,
   stage: item.stage,
   temperature: item.temperature,
+  createdAt: item.createdAt,
 });
 
 export default function CrmDashboard({
@@ -617,9 +620,10 @@ export default function CrmDashboard({
     receivables:["FINANCEIRO • RECEBIMENTOS","Contas a receber","Acompanhe parcelas, vencimentos e pagamentos."],
     payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
     team:["ADMINISTRAÇÃO • ACESSOS","Equipe e permissões","Defina quem pode acessar cada área do TDK Manager."],
+    reports:["GESTÃO • INDICADORES","Relatórios gerenciais","Analise resultados comerciais e financeiros por período."],
   };
   const primaryAction =
-    view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -629,7 +633,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -723,7 +727,7 @@ export default function CrmDashboard({
             Contas a pagar <span className="nav-count">{payables.filter(item=>!['pago','cancelado'].includes(item.status)).length}</span>
           </NavButton>
           <NavButton active={view === "team"} onClick={() => navigate("team")} icon={<Users />}>Equipe e permissões <span className="nav-count">{team.filter(member=>member.active).length}</span></NavButton>
-          <NavButton icon={<TrendingUp />}>Relatórios</NavButton>
+          <NavButton active={view === "reports"} onClick={() => navigate("reports")} icon={<TrendingUp />}>Relatórios</NavButton>
         </nav>
         <div className="sidebar-footer">
           <button>
@@ -779,7 +783,7 @@ export default function CrmDashboard({
               <p>{titles[view][2]}</p>
             </div>
             <Button className="new-button" onClick={primaryAction}>
-              <Plus /> {primaryLabel}
+              {view === "reports" ? <Printer /> : <Plus />} {primaryLabel}
             </Button>
           </section>
           {view === "dashboard" || view === "pipeline" ? (
@@ -803,6 +807,8 @@ export default function CrmDashboard({
             <Payables payables={payables} update={updatePayable} add={()=>openNew("payable")} />
           ) : view === "team" ? (
             <Team team={team} currentUserId={currentUserId} add={()=>openNew("member")} edit={editMember} toggle={toggleMember} />
+          ) : view === "reports" ? (
+            <Reports opportunities={items} proposals={proposals} sales={sales} billings={billings} receivables={receivables} payables={payables} />
           ) : view === "receivables" ? (
             <Receivables receivables={receivables} update={updateReceivable} />
           ) : view === "billings" ? (
@@ -1544,6 +1550,12 @@ function Contacts({
       ))}
     </div>
   );
+}
+function Reports({opportunities,proposals,sales,billings,receivables,payables}:{opportunities:Opportunity[];proposals:ProposalRecord[];sales:SaleRecord[];billings:BillingRecord[];receivables:ReceivableRecord[];payables:PayableRecord[]}){
+ const today=new Date().toISOString().slice(0,10);const [period,setPeriod]=useState({from:`${today.slice(0,4)}-01-01`,to:today});const inside=(value:string|null|undefined)=>Boolean(value&&value.slice(0,10)>=period.from&&value.slice(0,10)<=period.to);const periodProposals=proposals.filter(item=>inside(item.createdAt)),periodSales=sales.filter(item=>inside(item.createdAt)),periodReceivables=receivables.filter(item=>inside(item.dueDate)),periodPayables=payables.filter(item=>inside(item.dueDate)&&item.status!=="cancelado");const proposed=periodProposals.reduce((sum,item)=>sum+item.total,0),approved=periodProposals.filter(item=>item.status==="aprovada").reduce((sum,item)=>sum+item.total,0),sold=periodSales.reduce((sum,item)=>sum+item.total,0),cost=periodSales.reduce((sum,item)=>sum+item.cost,0),received=periodReceivables.reduce((sum,item)=>sum+item.receivedAmount,0),toReceive=periodReceivables.reduce((sum,item)=>sum+Math.max(0,item.amount+item.interest+item.penalty-item.discount-item.receivedAmount),0),paid=periodPayables.reduce((sum,item)=>sum+item.paidAmount,0),toPay=periodPayables.reduce((sum,item)=>sum+Math.max(0,item.amount-item.paidAmount),0),conversion=periodProposals.length?periodProposals.filter(item=>item.status==="aprovada").length/periodProposals.length*100:0,margin=sold?(sold-cost)/sold*100:0;
+ const months:string[]=[];let cursor=new Date(`${period.from}T12:00:00Z`),end=new Date(`${period.to}T12:00:00Z`);while(cursor<=end&&months.length<24){months.push(cursor.toISOString().slice(0,7));cursor=new Date(Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth()+1,1,12));}const visibleMonths=months.slice(-12);const monthly=visibleMonths.map(month=>({month,label:new Intl.DateTimeFormat("pt-BR",{month:"short",timeZone:"UTC"}).format(new Date(`${month}-01T12:00:00Z`)).replace(".",""),sales:periodSales.filter(item=>item.createdAt.startsWith(month)).reduce((sum,item)=>sum+item.total,0),received:receivables.filter(item=>item.paymentDate?.startsWith(month)).reduce((sum,item)=>sum+item.receivedAmount,0)}));const chartMax=Math.max(1,...monthly.flatMap(item=>[item.sales,item.received]));
+ const proposalStatuses=[["rascunho","Rascunho"],["enviada","Enviada"],["aprovada","Aprovada"],["recusada","Recusada"],["expirada","Expirada"]].map(([status,label])=>({status,label,count:periodProposals.filter(item=>item.status===status).length}));const statusMax=Math.max(1,...proposalStatuses.map(item=>item.count));const clientMap=new Map<string,number>();periodSales.forEach(item=>clientMap.set(item.companyName,(clientMap.get(item.companyName)||0)+item.total));const topClients=[...clientMap].sort((a,b)=>b[1]-a[1]).slice(0,5);const clientMax=Math.max(1,...topClients.map(item=>item[1]));const stageLabels:Record<string,string>={novo:"Novos",qualificacao:"Qualificação",proposta:"Proposta",negociacao:"Negociação",ganho:"Ganhos"};
+ return <div className="reports-page"><div className="report-filter"><Field label="Período de"><Input type="date" value={period.from} onChange={event=>setPeriod({...period,from:event.target.value})}/></Field><Field label="Até"><Input type="date" value={period.to} onChange={event=>setPeriod({...period,to:event.target.value})}/></Field><span>Indicadores calculados com os registros do período selecionado.</span></div><div className="report-kpis"><article><small>Propostas emitidas</small><strong>{money(proposed)}</strong><span>{periodProposals.length} propostas · {conversion.toFixed(1)}% aprovadas</span></article><article><small>Vendas</small><strong>{money(sold)}</strong><span>{periodSales.length} pedidos gerados</span></article><article><small>Resultado estimado</small><strong>{money(sold-cost)}</strong><span>Margem de {margin.toFixed(1)}%</span></article><article><small>Recebido</small><strong>{money(received)}</strong><span>{money(toReceive)} a receber</span></article><article><small>Pago</small><strong>{money(paid)}</strong><span>{money(toPay)} a pagar</span></article></div><div className="report-grid"><article className="report-panel report-cash"><header><div><small>FLUXO FINANCEIRO</small><h2>Vendas e recebimentos</h2></div><div className="report-legend"><span className="sales">Vendas</span><span className="received">Recebido</span></div></header>{monthly.some(item=>item.sales||item.received)?<div className="monthly-chart">{monthly.map(item=><div key={item.month}><div className="chart-columns"><i className="sales" style={{height:`${Math.max(item.sales?5:0,item.sales/chartMax*100)}%`}} title={`Vendas: ${money(item.sales)}`}/><i className="received" style={{height:`${Math.max(item.received?5:0,item.received/chartMax*100)}%`}} title={`Recebido: ${money(item.received)}`}/></div><span>{item.label}</span></div>)}</div>:<p className="report-empty">Sem movimentações financeiras neste período.</p>}</article><article className="report-panel"><header><div><small>PROPOSTAS</small><h2>Distribuição por status</h2></div><strong>{money(approved)} aprovados</strong></header><div className="horizontal-bars">{proposalStatuses.map(item=><div key={item.status}><span>{item.label}</span><i><b className={item.status} style={{width:`${item.count/statusMax*100}%`}}/></i><strong>{item.count}</strong></div>)}</div></article><article className="report-panel"><header><div><small>CARTEIRA</small><h2>Maiores clientes em vendas</h2></div></header>{topClients.length?<div className="client-ranking">{topClients.map(([name,value],index)=><div key={name}><b>{index+1}</b><span><strong>{name}</strong><i><em style={{width:`${value/clientMax*100}%`}}/></i></span><small>{money(value)}</small></div>)}</div>:<p className="report-empty">Nenhuma venda no período.</p>}</article><article className="report-panel"><header><div><small>PIPELINE ATUAL</small><h2>Oportunidades por etapa</h2></div></header><div className="funnel-report">{stages.map(stage=>{const count=opportunities.filter(item=>item.stage===stage.id).length,value=opportunities.filter(item=>item.stage===stage.id).reduce((sum,item)=>sum+item.value,0);return <div key={stage.id}><i style={{background:stage.color}}/><span>{stageLabels[stage.id]}</span><strong>{count}</strong><small>{money(value)}</small></div>})}</div></article></div></div>;
 }
 function Team({team,currentUserId,add,edit,toggle}:{team:TeamMember[];currentUserId:number|null;add:()=>void;edit:(member:TeamMember)=>void;toggle:(member:TeamMember)=>void}){
  const [search,setSearch]=useState("");const roleLabels:Record<string,string>={admin:"Administrador",manager:"Gestor",seller:"Comercial",finance:"Financeiro",viewer:"Somente consulta"};const permissionLabels:Record<string,string>={crm:"CRM",proposals:"Propostas",sales:"Pedidos",billing:"Faturamento",receivables:"Recebimentos",payables:"Pagamentos",reports:"Relatórios",settings:"Configurações"};const filtered=team.filter(member=>`${member.name} ${member.email} ${member.jobTitle??""}`.toLowerCase().includes(search.toLowerCase()));
