@@ -198,6 +198,7 @@ export default function CrmDashboard({
   const [goals,setGoals]=useState<GoalRecord[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [dialog, setDialog] = useState<
     "opportunity" | "company" | "contact" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member" | null
   >(null);
@@ -666,6 +667,23 @@ export default function CrmDashboard({
   const proposalNet = Math.max(0,proposalForm.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitPrice||0),0)-Number(proposalForm.discount||0));
   const proposalProfit = proposalNet-proposalCost;
   const proposalMargin = proposalNet ? proposalProfit/proposalNet*100 : 0;
+  const today = new Date();
+  const todayKey = today.toISOString().slice(0, 10);
+  const proposalLimit = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const alerts: { id: string; title: string; detail: string; view: View; tone: "danger" | "warning" }[] = [
+    ...(can("crm") ? activities
+      .filter(activity => !activity.completedAt && activity.dueAt && new Date(activity.dueAt).getTime() < today.getTime())
+      .map(activity => ({ id: `activity-${activity.id}`, title: "Atividade atrasada", detail: `${activity.description} • ${activity.companyName}`, view: "activities" as View, tone: "danger" as const })) : []),
+    ...(can("proposals") ? proposals
+      .filter(proposal => proposal.validUntil && ["rascunho", "enviada"].includes(proposal.status) && proposal.validUntil >= todayKey && proposal.validUntil <= proposalLimit)
+      .map(proposal => ({ id: `proposal-${proposal.id}`, title: "Proposta próxima do vencimento", detail: `${proposal.number} • ${proposal.companyName}`, view: "proposals" as View, tone: "warning" as const })) : []),
+    ...(can("receivables") ? receivables
+      .filter(receivable => receivable.status !== "recebido" && receivable.dueDate < todayKey)
+      .map(receivable => ({ id: `receivable-${receivable.id}`, title: "Recebimento vencido", detail: `${receivable.billingNumber} • ${receivable.companyName} • ${money(receivable.amount - receivable.receivedAmount)}`, view: "receivables" as View, tone: "danger" as const })) : []),
+    ...(can("payables") ? payables
+      .filter(payable => !["pago", "cancelado"].includes(payable.status) && payable.dueDate < todayKey)
+      .map(payable => ({ id: `payable-${payable.id}`, title: "Pagamento vencido", detail: `${payable.description} • ${payable.supplierName} • ${money(payable.amount - payable.paidAmount)}`, view: "payables" as View, tone: "danger" as const })) : []),
+  ];
 
   return (
     <div className="app-shell">
@@ -787,10 +805,19 @@ export default function CrmDashboard({
               placeholder="Buscar no CRM..."
             />
           </div>
-          <button className="icon-button" aria-label="Notificações">
-            <Bell />
-            <i />
-          </button>
+          <div className="notification-wrap">
+            <button className="icon-button" aria-label="Notificações" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>
+              <Bell />
+              {alerts.length > 0 && <i />}
+            </button>
+            {notificationsOpen && <div className="notification-panel">
+              <header><div><small>CENTRAL DE ALERTAS</small><strong>Pendências importantes</strong></div><button type="button" aria-label="Fechar alertas" onClick={() => setNotificationsOpen(false)}><X /></button></header>
+              {alerts.length ? <div className="notification-list">
+                {alerts.slice(0, 12).map(alert => <button type="button" key={alert.id} className={`notification-item ${alert.tone}`} onClick={() => { navigate(alert.view); setNotificationsOpen(false); }}><span><i /></span><div><strong>{alert.title}</strong><small>{alert.detail}</small></div></button>)}
+              </div> : <div className="notification-empty"><CheckCircle2 /><strong>Nenhuma pendência crítica</strong><span>Está tudo em dia por aqui.</span></div>}
+              {alerts.length > 12 && <footer>Mais {alerts.length - 12} pendências nos respectivos módulos.</footer>}
+            </div>}
+          </div>
           <div className="header-date">
             <span>Visão comercial</span>
             <strong>Setembro de 2026</strong>
