@@ -155,6 +155,13 @@
       "when": 1788903805667,
       "tag": "0021_futuristic_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1788909320133,
+      "tag": "0022_fast_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }
