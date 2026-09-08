@@ -1,0 +1,1 @@
+ALTER TABLE `sales` ADD `project_status` text DEFAULT 'aguardando' NOT NULL;
