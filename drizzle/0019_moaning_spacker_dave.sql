@@ -1,0 +1,1 @@
+ALTER TABLE `sales` ADD `project_members` text DEFAULT '[]' NOT NULL;
