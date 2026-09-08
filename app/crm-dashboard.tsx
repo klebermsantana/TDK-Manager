@@ -14,6 +14,7 @@ import {
   Contact,
   Download,
   FileText,
+  KanbanSquare,
   LayoutDashboard,
   Loader2,
   Mail,
@@ -32,6 +33,7 @@ import {
   Target,
   TrendingUp,
   Trash2,
+  Wrench,
   Upload,
   Users,
   WalletCards,
@@ -62,7 +64,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "goals" | "proposals" | "catalog" | "sales" | "projects" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
+type View = "dashboard" | "pipeline" | "companies" | "contacts" | "activities" | "goals" | "proposals" | "catalog" | "sales" | "projects" | "service_calls" | "billings" | "receivables" | "payables" | "team" | "reports" | "settings";
 type Opportunity = {
   id: number;
   title: string;
@@ -133,6 +135,8 @@ type SystemSettings={id:number;companyName:string;document:string|null;email:str
 type GoalRecord={id:number;name:string;type:string;target:number;startsAt:string;endsAt:string;active:boolean;createdAt:string;updatedAt:string};
 type ProjectTask={id:number;saleId:number;title:string;responsible:string|null;dueDate:string|null;completedAt:string|null;createdAt:string;updatedAt:string};
 type ProjectFile={id:number;saleId:number;name:string;contentType:string;size:number;uploadedBy:string;createdAt:string};
+type ServiceCall={id:number;number:string;companyId:number|null;companyName:string;saleId:number|null;location:string|null;contactName:string|null;technician:string|null;serviceType:string;priority:string;scheduledAt:string|null;status:string;subject:string;description:string;createdBy:string;createdAt:string;updatedAt:string};
+type ServiceCallHistory={id:number;serviceCallId:number;fromStatus:string|null;toStatus:string;changedBy:string;createdAt:string};
 
 const stages = [
   { id: "novo", label: "Novo lead", color: "#38bdf8" },
@@ -204,11 +208,13 @@ export default function CrmDashboard({
   const [goals,setGoals]=useState<GoalRecord[]>([]);
   const [projectTasks,setProjectTasks]=useState<ProjectTask[]>([]);
   const [projectFiles,setProjectFiles]=useState<ProjectFile[]>([]);
+  const [serviceCalls,setServiceCalls]=useState<ServiceCall[]>([]);
+  const [serviceCallHistory,setServiceCallHistory]=useState<ServiceCallHistory[]>([]);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [dialog, setDialog] = useState<
-    "opportunity" | "company" | "contact" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member" | null
+    "opportunity" | "company" | "contact" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member" | "service_call" | null
   >(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -246,13 +252,14 @@ export default function CrmDashboard({
   const [payableForm,setPayableForm]=useState({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
   const [memberForm,setMemberForm]=useState({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"] as string[],active:true});
   const [goalForm,setGoalForm]=useState({name:"",type:"sales",target:"",startsAt:`${new Date().getFullYear()}-01-01`,endsAt:`${new Date().getFullYear()}-12-31`,active:true});
+  const [serviceCallForm,setServiceCallForm]=useState({companyId:"",saleId:"",location:"",contactName:"",technician:"",serviceType:"visita",priority:"normal",scheduledAt:"",subject:"",description:""});
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const responses = await Promise.all(
-          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team", "/api/settings", "/api/goals", "/api/project-tasks", "/api/project-files"].map((url) =>
+          ["/api/opportunities", "/api/companies", "/api/contacts", "/api/activities", "/api/proposals", "/api/catalog", "/api/sales", "/api/billings", "/api/receivables", "/api/payables", "/api/team", "/api/settings", "/api/goals", "/api/project-tasks", "/api/project-files", "/api/service-calls"].map((url) =>
             fetch(url, { cache: "no-store" }),
           ),
         );
@@ -281,6 +288,8 @@ export default function CrmDashboard({
           setGoals(payloads[12].goals);
           setProjectTasks(payloads[13].tasks);
           setProjectFiles(payloads[14].files);
+          setServiceCalls(payloads[15].calls);
+          setServiceCallHistory(payloads[15].history);
         }
       } catch (reason) {
         if (active)
@@ -328,7 +337,7 @@ export default function CrmDashboard({
   );
   const currentMember=team.find(member=>member.id===currentUserId)??null;
   const can=(permission:string)=>currentMember?.role==="admin"||Boolean(currentMember?.active&&currentMember?.permissions.includes(permission));
-  useEffect(()=>{if(!currentMember||currentMember.role==="admin")return;const permissionByView:Partial<Record<View,string>>={pipeline:"crm",companies:"crm",contacts:"crm",activities:"crm",goals:"crm",proposals:"proposals",catalog:"proposals",sales:"sales",projects:"sales",billings:"billing",receivables:"receivables",payables:"payables",reports:"reports",team:"settings",settings:"settings"};const required=permissionByView[view];if(required&&!can(required))setView("dashboard");},[currentMember,view]);
+  useEffect(()=>{if(!currentMember||currentMember.role==="admin")return;const permissionByView:Partial<Record<View,string>>={pipeline:"crm",companies:"crm",contacts:"crm",activities:"crm",goals:"crm",proposals:"proposals",catalog:"proposals",sales:"sales",projects:"sales",service_calls:"sales",billings:"billing",receivables:"receivables",payables:"payables",reports:"reports",team:"settings",settings:"settings"};const required=permissionByView[view];if(required&&!can(required))setView("dashboard");},[currentMember,view]);
   const pipeline = items
     .filter((item) => item.stage !== "ganho")
     .reduce((sum, item) => sum + item.value, 0);
@@ -341,7 +350,7 @@ export default function CrmDashboard({
     setMenuOpen(false);
     setQuery("");
   }
-  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member") {
+  function openNew(kind: "company" | "contact" | "opportunity" | "activity" | "goal" | "proposal" | "catalog" | "payable" | "member" | "service_call") {
     setEditingId(null);
     if (kind === "company") setCompanyForm({ name: "", document: "", segment: "", preferredPriceTable: "padrao" });
     if (kind === "contact") setContactForm({ name: "", companyId: "", role: "", email: "", phone: "" });
@@ -353,6 +362,7 @@ export default function CrmDashboard({
     if (kind === "payable") setPayableForm({supplierName:"",supplierDocument:"",supplierEmail:"",supplierPhone:"",companyId:"",project:"",description:"",reference:"",category:"fornecedor",amount:"",installments:"1",dueDate:""});
     if (kind === "member") setMemberForm({name:"",email:"",jobTitle:"",role:"seller",permissions:["crm","proposals","sales"],active:true});
     if (kind === "goal") setGoalForm({name:"",type:"sales",target:"",startsAt:`${new Date().getFullYear()}-01-01`,endsAt:`${new Date().getFullYear()}-12-31`,active:true});
+    if (kind === "service_call") setServiceCallForm({companyId:"",saleId:"",location:"",contactName:"",technician:"",serviceType:"visita",priority:"normal",scheduledAt:"",subject:"",description:""});
     setDialog(kind);
   }
   function editCompany(company: Company) {
@@ -597,6 +607,8 @@ export default function CrmDashboard({
   function editGoal(goal:GoalRecord){setEditingId(goal.id);setGoalForm({name:goal.name,type:goal.type,target:String(goal.target),startsAt:goal.startsAt,endsAt:goal.endsAt,active:goal.active});setDialog("goal");}
   async function saveGoal(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");try{const response=await fetch("/api/goals",{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...goalForm,id:editingId,target:Number(goalForm.target)})});const data=await response.json();if(!response.ok)throw new Error(data.error);setGoals(current=>(editingId?current.map(goal=>goal.id===editingId?data.goal:goal):[...current,data.goal]).sort((a,b)=>a.startsAt.localeCompare(b.startsAt)));setDialog(null);setEditingId(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível salvar a meta.");}finally{setSaving(false);}}
   async function deleteGoal(goal:GoalRecord){if(!window.confirm(`Excluir a meta “${goal.name}”?`))return;try{const response=await fetch(`/api/goals?id=${goal.id}`,{method:"DELETE"});const data=await response.json();if(!response.ok)throw new Error(data.error);setGoals(current=>current.filter(item=>item.id!==goal.id));}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível excluir a meta.");}}
+  async function createServiceCall(event:React.FormEvent){event.preventDefault();const company=companies.find(item=>item.id===Number(serviceCallForm.companyId));if(!company)return;setSaving(true);setError("");try{const response=await fetch("/api/service-calls",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...serviceCallForm,companyName:company.name})});const data=await response.json();if(!response.ok)throw new Error(data.error);setServiceCalls(current=>[data.call,...current]);setServiceCallHistory(current=>[...current,{id:Date.now(),serviceCallId:data.call.id,fromStatus:null,toStatus:"triagem",changedBy:user.name,createdAt:data.call.createdAt}]);setDialog(null);}catch(reason){setError(reason instanceof Error?reason.message:"Não foi possível cadastrar o chamado.");}finally{setSaving(false);}}
+  async function changeServiceCallStatus(call:ServiceCall,status:string){if(call.status===status)return;const previous=serviceCalls;const changedAt=new Date().toISOString();setServiceCalls(current=>current.map(item=>item.id===call.id?{...item,status,updatedAt:changedAt}:item));try{const response=await fetch("/api/service-calls",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:call.id,status})});const data=await response.json();if(!response.ok)throw new Error(data.error);setServiceCalls(current=>current.map(item=>item.id===call.id?data.call:item));setServiceCallHistory(current=>[...current,{id:Date.now(),serviceCallId:call.id,fromStatus:call.status,toStatus:status,changedBy:user.name,createdAt:changedAt}]);}catch(reason){setServiceCalls(previous);setError(reason instanceof Error?reason.message:"Não foi possível atualizar o chamado.");}}
   async function confirmDelete() {
     if (!deleteTarget) return;
     setSaving(true);
@@ -649,6 +661,7 @@ export default function CrmDashboard({
     catalog: ["COMERCIAL • CATÁLOGO", "Produtos, serviços e preços", "Controle custos e preços para diferentes estratégias comerciais."],
     sales: ["GESTÃO • PEDIDOS", "Pedidos e vendas", "Acompanhe a execução das propostas aprovadas."],
     projects: ["OPERAÇÃO • EXECUÇÃO", "Projetos", "Planeje responsáveis, prazos e evolução dos pedidos em execução."],
+    service_calls:["OPERAÇÃO • ATENDIMENTOS","Chamados e ordens de serviço","Faça a triagem, distribua e acompanhe os atendimentos técnicos."],
     billings:["FINANCEIRO • FATURAMENTO","Faturamento","Controle notas fiscais, vencimentos e valores recebidos."],
     receivables:["FINANCEIRO • RECEBIMENTOS","Contas a receber","Acompanhe parcelas, vencimentos e pagamentos."],
     payables:["FINANCEIRO • PAGAMENTOS","Contas a pagar","Controle fornecedores, despesas, vencimentos e pagamentos."],
@@ -657,7 +670,7 @@ export default function CrmDashboard({
     settings:["ADMINISTRAÇÃO • PREFERÊNCIAS","Configurações","Centralize os dados da TDK e os padrões utilizados nos cadastros."],
   };
   const primaryAction =
-    view === "goals" ? () => openNew("goal") : view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "projects" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
+    view === "goals" ? () => openNew("goal") : view === "settings" ? () => (document.getElementById("settings-form") as HTMLFormElement|null)?.requestSubmit() : view === "reports" ? () => window.print() : view === "team" ? () => openNew("member") : view === "payables" ? () => openNew("payable") : view === "receivables" ? () => navigate("billings") : view === "billings" ? () => navigate("sales") : view === "service_calls" ? () => openNew("service_call") : view === "projects" ? () => navigate("sales") : view === "sales" ? () => navigate("proposals") : view === "catalog" ? () => openNew("catalog") : view === "proposals"
       ? () => openNew("proposal")
       : view === "activities"
       ? () => openNew("activity")
@@ -667,7 +680,7 @@ export default function CrmDashboard({
         ? () => openNew("contact")
         : () => openNew("opportunity");
   const primaryLabel =
-    view === "goals" ? "Nova meta" : view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "projects" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
+    view === "goals" ? "Nova meta" : view === "settings" ? "Salvar configurações" : view === "reports" ? "Imprimir relatório" : view === "team" ? "Novo usuário" : view === "payables" ? "Nova conta" : view === "receivables" ? "Ver faturamento" : view === "billings" ? "Ver pedidos" : view === "service_calls" ? "Novo chamado" : view === "projects" ? "Ver pedidos" : view === "sales" ? "Ver propostas" : view === "catalog" ? "Novo item" : view === "proposals"
       ? "Nova proposta"
       : view === "activities"
       ? "Nova atividade"
@@ -781,6 +794,10 @@ export default function CrmDashboard({
           {can("sales")&&
           <NavButton active={view === "projects"} onClick={() => navigate("projects")} icon={<ClipboardList />}>
             Projetos <span className="nav-count">{sales.filter(item=>!["concluido","cancelado"].includes(item.projectStatus)).length}</span>
+          </NavButton>}
+          {can("sales")&&
+          <NavButton active={view === "service_calls"} onClick={() => navigate("service_calls")} icon={<Wrench />}>
+            Chamados e OS <span className="nav-count">{serviceCalls.filter(item=>!["concluido","cancelado"].includes(item.status)).length}</span>
           </NavButton>}
           {(can("billing")||can("receivables")||can("payables"))&&<p>FINANCEIRO</p>}
           {can("billing")&&
@@ -899,6 +916,8 @@ export default function CrmDashboard({
             <Billings billings={billings} update={updateBilling} generate={generateReceivables} />
           ) : view === "projects" ? (
             <Projects sales={sales} tasks={projectTasks} files={projectFiles} team={team.filter(member=>member.active)} update={updateSale} addTask={addProjectTask} toggleTask={toggleProjectTask} deleteTask={deleteProjectTask} uploadFile={uploadProjectFile} deleteFile={deleteProjectFile} saving={saving} />
+          ) : view === "service_calls" ? (
+            <ServiceCalls calls={serviceCalls} history={serviceCallHistory} changeStatus={changeServiceCallStatus} />
           ) : view === "sales" ? (
             <Sales sales={sales} proposals={proposals} billings={billings} update={updateSale} bill={createBilling} />
           ) : view === "catalog" ? (
@@ -961,6 +980,21 @@ export default function CrmDashboard({
           </>}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={dialog === "service_call"} onOpenChange={(open)=>setDialog(open?"service_call":null)}>
+        <DialogContent className="dialog service-call-dialog">
+          <DialogHeader><span className="dialog-kicker">ORDEM DE SERVIÇO</span><DialogTitle>Novo chamado</DialogTitle><DialogDescription>Registre o acionamento para triagem e atendimento da equipe técnica.</DialogDescription></DialogHeader>
+          <form onSubmit={createServiceCall} className="form">
+            <div className="form-split"><Field label="Cliente"><select value={serviceCallForm.companyId} onChange={event=>setServiceCallForm({...serviceCallForm,companyId:event.target.value,saleId:""})} required><option value="">Selecione o cliente</option>{companies.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}</select></Field><Field label="Pedido / projeto (opcional)"><select value={serviceCallForm.saleId} onChange={event=>setServiceCallForm({...serviceCallForm,saleId:event.target.value})}><option value="">Sem vínculo</option>{sales.filter(sale=>!serviceCallForm.companyId||sale.companyName===companies.find(company=>company.id===Number(serviceCallForm.companyId))?.name).map(sale=><option key={sale.id} value={sale.id}>{sale.number}</option>)}</select></Field></div>
+            <div className="form-split"><Field label="Local do atendimento"><Input value={serviceCallForm.location} onChange={event=>setServiceCallForm({...serviceCallForm,location:event.target.value})} placeholder="Unidade, endereço ou setor"/></Field><Field label="Solicitante / contato"><Input value={serviceCallForm.contactName} onChange={event=>setServiceCallForm({...serviceCallForm,contactName:event.target.value})} placeholder="Nome do solicitante"/></Field></div>
+            <Field label="Assunto"><Input value={serviceCallForm.subject} onChange={event=>setServiceCallForm({...serviceCallForm,subject:event.target.value})} placeholder="Ex.: Instabilidade na rede Wi-Fi" required/></Field>
+            <Field label="Descrição do chamado"><Textarea value={serviceCallForm.description} onChange={event=>setServiceCallForm({...serviceCallForm,description:event.target.value})} placeholder="Descreva o problema, sintomas e informações importantes" required/></Field>
+            <div className="form-split"><Field label="Tipo de serviço"><select value={serviceCallForm.serviceType} onChange={event=>setServiceCallForm({...serviceCallForm,serviceType:event.target.value})}><option value="visita">Visita técnica</option><option value="remoto">Atendimento remoto</option><option value="instalacao">Instalação</option><option value="manutencao">Manutenção</option><option value="vistoria">Vistoria</option></select></Field><Field label="Prioridade"><select value={serviceCallForm.priority} onChange={event=>setServiceCallForm({...serviceCallForm,priority:event.target.value})}><option value="baixa">Baixa</option><option value="normal">Normal</option><option value="alta">Alta</option><option value="critica">Crítica</option></select></Field></div>
+            <div className="form-split"><Field label="Técnico responsável"><select value={serviceCallForm.technician} onChange={event=>setServiceCallForm({...serviceCallForm,technician:event.target.value})}><option value="">Definir na triagem</option>{team.filter(member=>member.active).map(member=><option key={member.id} value={member.name}>{member.name}</option>)}</select></Field><Field label="Agendamento"><Input type="datetime-local" value={serviceCallForm.scheduledAt} onChange={event=>setServiceCallForm({...serviceCallForm,scheduledAt:event.target.value})}/></Field></div>
+            <SaveButton saving={saving} disabled={!companies.length}>Cadastrar chamado</SaveButton>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={dialog === "opportunity"}
@@ -1690,6 +1724,15 @@ function BillingCard({item,update,generate}:{item:BillingRecord;update:(billing:
  const save=()=>update(item,{paymentTerms:draft.paymentTerms,installments:Math.max(1,Number(draft.installments)||1),dueDate:draft.dueDate,materialInvoice:draft.materialInvoice,serviceInvoice:draft.serviceInvoice});
  return <article className="billing-card"><header><div><small>{item.number} · {item.saleNumber}</small><h2>{item.companyName}</h2></div><span className={`billing-status ${item.status}`}>{item.status==="recebido"?"Recebido":item.status==="parcial"?"Parcial":"Pendente"}</span></header><div className="billing-values"><span>Materiais<strong>{money(item.materialAmount)}</strong></span><span>Serviços<strong>{money(item.serviceAmount)}</strong></span><span>Total<strong>{money(item.total)}</strong></span><span>Em aberto<strong>{money(open)}</strong></span></div><div className="billing-fields"><Field label="Condição de pagamento"><select value={draft.paymentTerms} onChange={event=>setDraft({...draft,paymentTerms:event.target.value})}><option value="À vista">À vista</option><option value="A prazo">A prazo</option><option value="Parcelado">Parcelado</option></select></Field><Field label="Parcelas"><Input type="number" min="1" value={draft.installments} onChange={event=>setDraft({...draft,installments:Number(event.target.value)})}/></Field><Field label="1º vencimento"><Input type="date" value={draft.dueDate??""} onChange={event=>setDraft({...draft,dueDate:event.target.value||null})}/></Field><Field label="NF materiais"><Input value={draft.materialInvoice??""} onChange={event=>setDraft({...draft,materialInvoice:event.target.value})}/></Field><Field label="NF serviços"><Input value={draft.serviceInvoice??""} onChange={event=>setDraft({...draft,serviceInvoice:event.target.value})}/></Field><Field label="Valor recebido"><Input value={money(item.receivedAmount)} disabled/></Field></div><div className="billing-actions"><Button disabled={!dirty} onClick={save}>Salvar alterações</Button><Button variant="outline" disabled={!dirty} onClick={()=>setDraft(item)}>Cancelar</Button><Button className="receivable-button" disabled={dirty} onClick={()=>generate(item)}>Gerar / atualizar parcelas</Button></div>{dirty&&<small className="billing-warning">Salve ou cancele as alterações antes de atualizar as parcelas.</small>}</article>;
 }
+const serviceCallStatuses=[{id:"triagem",label:"Triagem"},{id:"aberto",label:"Aberto"},{id:"acionado",label:"Acionado"},{id:"confirmado",label:"Confirmado"},{id:"deslocamento",label:"Deslocamento"},{id:"atendimento",label:"Em atendimento"},{id:"pendente",label:"Pendente"},{id:"concluido",label:"Concluído"},{id:"cancelado",label:"Cancelado"}];
+function ServiceCalls({calls,history,changeStatus}:{calls:ServiceCall[];history:ServiceCallHistory[];changeStatus:(call:ServiceCall,status:string)=>void}){
+ const [mode,setMode]=useState<"kanban"|"list">("kanban");const [dragged,setDragged]=useState<number|null>(null);const [filters,setFilters]=useState({search:"",status:"todos",technician:"",from:"",to:""});
+ const visible=calls.filter(call=>{const search=`${call.number} ${call.companyName} ${call.subject} ${call.location??""}`.toLowerCase();const date=(call.scheduledAt??call.createdAt).slice(0,10);return search.includes(filters.search.toLowerCase())&&(filters.status==="todos"||call.status===filters.status)&&(!filters.technician||(call.technician??"").toLowerCase().includes(filters.technician.toLowerCase()))&&(!filters.from||date>=filters.from)&&(!filters.to||date<=filters.to);});
+ const lastChange=(id:number)=>history.filter(item=>item.serviceCallId===id).at(-1);
+ const card=(call:ServiceCall)=><article className={`service-call-card priority-${call.priority}`} key={call.id} draggable onDragStart={()=>setDragged(call.id)} onDragEnd={()=>setDragged(null)}><header><span>{call.number}</span><b>{call.priority}</b></header><h3>{call.subject}</h3><p>{call.companyName}</p>{call.location&&<small>Local: {call.location}</small>}<div className="service-call-meta"><span>{call.technician||"Sem técnico"}</span><span>{call.scheduledAt?new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(call.scheduledAt)):"Sem agendamento"}</span></div><footer><select aria-label={`Status de ${call.number}`} value={call.status} onChange={event=>changeStatus(call,event.target.value)}>{serviceCallStatuses.map(status=><option key={status.id} value={status.id}>{status.label}</option>)}</select><small>{lastChange(call.id)?`Alterado por ${lastChange(call.id)?.changedBy}`:`Aberto por ${call.createdBy}`}</small></footer></article>;
+ return <><div className="service-call-summary"><span><strong>{calls.filter(call=>!["concluido","cancelado"].includes(call.status)).length}</strong> ativos</span><span><strong>{calls.filter(call=>call.status==="atendimento").length}</strong> em atendimento</span><span><strong>{calls.filter(call=>call.priority==="critica"&&!['concluido','cancelado'].includes(call.status)).length}</strong> críticos</span><div className="view-switch"><button className={mode==="kanban"?"active":""} onClick={()=>setMode("kanban")}><KanbanSquare/> Kanban</button><button className={mode==="list"?"active":""} onClick={()=>setMode("list")}><ClipboardList/> Lista</button></div></div><div className="filter-bar service-call-filters"><Field label="Número, cliente, assunto ou local"><Input value={filters.search} onChange={event=>setFilters({...filters,search:event.target.value})} placeholder="Buscar chamado..."/></Field><Field label="Status"><select value={filters.status} onChange={event=>setFilters({...filters,status:event.target.value})}><option value="todos">Todos</option>{serviceCallStatuses.map(status=><option key={status.id} value={status.id}>{status.label}</option>)}</select></Field><Field label="Técnico"><Input value={filters.technician} onChange={event=>setFilters({...filters,technician:event.target.value})} placeholder="Responsável"/></Field><Field label="De"><Input type="date" value={filters.from} onChange={event=>setFilters({...filters,from:event.target.value})}/></Field><Field label="Até"><Input type="date" value={filters.to} onChange={event=>setFilters({...filters,to:event.target.value})}/></Field></div>{mode==="kanban"?<div className="service-kanban">{serviceCallStatuses.map(status=><section key={status.id} className={`service-column status-${status.id}`} onDragOver={event=>event.preventDefault()} onDrop={()=>{const call=calls.find(item=>item.id===dragged);if(call)changeStatus(call,status.id);setDragged(null);}}><header><strong>{status.label}</strong><span>{visible.filter(call=>call.status===status.id).length}</span></header><div>{visible.filter(call=>call.status===status.id).map(card)}</div></section>)}</div>:visible.length?<div className="service-call-list">{visible.map(card)}</div>:<div className="filter-empty">Nenhum chamado encontrado com esses filtros.</div>}</>;
+}
+
 function Projects({sales,tasks,files,team,update,addTask,toggleTask,deleteTask,uploadFile,deleteFile,saving}:{sales:SaleRecord[];tasks:ProjectTask[];files:ProjectFile[];team:TeamMember[];update:(sale:SaleRecord,changes:Partial<SaleRecord>)=>void;addTask:(saleId:number,task:{title:string;responsible:string;dueDate:string})=>void;toggleTask:(task:ProjectTask)=>void;deleteTask:(task:ProjectTask)=>void;uploadFile:(saleId:number,file:File)=>void;deleteFile:(file:ProjectFile)=>void;saving:boolean}){
  const [filters,setFilters]=useState({search:"",status:"ativos",manager:""});
  const normalized=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();

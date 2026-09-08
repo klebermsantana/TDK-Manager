@@ -148,6 +148,13 @@
       "when": 1788891163676,
       "tag": "0020_parched_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788903805667,
+      "tag": "0021_futuristic_abomination",
+      "breakpoints": true
     }
   ]
 }
