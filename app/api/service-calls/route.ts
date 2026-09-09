@@ -115,9 +115,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     const requestedNumber = String(p.number ?? "").trim();
-    const number = /^OS-\d{4}-\d{6}$/.test(requestedNumber)
+    const number = /^TDK-\d{4}-\d{6}$/.test(requestedNumber)
       ? requestedNumber
-      : `OS-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+      : `TDK-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
     const [call] = await getDb()
       .insert(serviceCalls)
       .values({
@@ -297,7 +297,6 @@ export async function PATCH(request: Request) {
         !values.companyName && "cliente",
         !values.location && "localidade",
         !values.contactName && "contato",
-        !values.department && "departamento",
         !values.customerTicket && "chamado interno",
         !values.serviceType && "modalidade",
         !values.subject && "serviço solicitado",
