@@ -5048,7 +5048,7 @@ export default function CrmDashboard({
             </div>
             <div className="form-split">
               <ScanCodeField label="Número serial" value={equipmentForm.serialNumber} onChange={(serialNumber) => setEquipmentForm({...equipmentForm, serialNumber})} />
-              <ScanCodeField label="Número de inventário" value={equipmentForm.inventoryNumber} onChange={(inventoryNumber) => setEquipmentForm({...equipmentForm, inventoryNumber})} />
+              <ScanCodeField label="Número do patrimônio" value={equipmentForm.inventoryNumber} onChange={(inventoryNumber) => setEquipmentForm({...equipmentForm, inventoryNumber})} />
             </div>
             <Field label="Custo (R$)"><Input type="number" min="0" step="0.01" value={equipmentForm.cost} onChange={(e) => setEquipmentForm({...equipmentForm, cost:e.target.value})} /></Field>
             <SaveButton saving={saving}>{editingId ? "Salvar alterações" : "Cadastrar equipamento"}</SaveButton>
@@ -9260,7 +9260,7 @@ function EquipmentCatalog({ items, add, edit, remove }: {
   return <div className="catalog-list">
     <div className="catalog-table-head"><span>Item</span><span>Marca</span><span>Modelo</span><span>Unidade</span><span>Custo</span><span /></div>
     {items.map((item) => <article className="catalog-row" key={item.id}>
-      <div><small>{item.code || "Sem código"}</small><strong>{item.description}</strong><em>{[item.serialNumber && `Serial: ${item.serialNumber}`, item.inventoryNumber && `Inventário: ${item.inventoryNumber}`].filter(Boolean).join(" · ")}</em></div>
+      <div><small>{item.code || "Sem código"}</small><strong>{item.description}</strong><em>{[item.serialNumber && `Serial: ${item.serialNumber}`, item.inventoryNumber && `Patrimônio: ${item.inventoryNumber}`].filter(Boolean).join(" · ")}</em></div>
       <span>{item.brand || "—"}</span><span>{item.model || "—"}</span><span>{item.unit}</span><span>{money(item.cost)}</span>
       <div className="record-actions"><button aria-label={`Editar ${item.description}`} onClick={() => edit(item)}><Pencil /></button><button className="danger" aria-label={`Excluir ${item.description}`} onClick={() => remove(item)}><Trash2 /></button></div>
     </article>)}
