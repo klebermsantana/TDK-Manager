@@ -108,6 +108,18 @@ export const catalogItems = sqliteTable("catalog_items", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+export const equipmentItems = sqliteTable("equipment_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code"),
+  description: text("description").notNull(),
+  brand: text("brand"),
+  model: text("model"),
+  unit: text("unit").notNull().default("un"),
+  cost: real("cost").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
 export const proposals = sqliteTable("proposals", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   opportunityId: integer("opportunity_id").references(() => opportunities.id),
@@ -361,6 +373,8 @@ export const serviceCallMaterials = sqliteTable(
     quantity: real("quantity").notNull().default(1),
     unit: text("unit").notNull().default("un"),
     unitCost: real("unit_cost").notNull().default(0),
+    unitPrice: real("unit_price").notNull().default(0),
+    priceTable: text("price_table").notNull().default("padrao"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -375,6 +389,9 @@ export const serviceCallEquipment = sqliteTable(
       .notNull()
       .references(() => serviceCalls.id),
     catalogId: integer("catalog_id").references(() => catalogItems.id),
+    equipmentItemId: integer("equipment_item_id").references(
+      () => equipmentItems.id,
+    ),
     description: text("description").notNull(),
     brandModel: text("brand_model"),
     quantity: real("quantity").notNull().default(1),

@@ -1,12 +1,12 @@
 .service-call-header-number {
   position: absolute;
-  top: 27px;
+  top: 48px;
   right: 78px;
   padding: 4px 0;
   border: 0;
   background: transparent;
   color: #1268c7;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 900;
   letter-spacing: 0.04em;
 }

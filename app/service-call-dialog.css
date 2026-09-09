@@ -16,7 +16,7 @@
 }
 .service-call-dialog .form > div,
 .service-call-dialog .form-split > div {
-  gap: 7px;
+  gap: 11px;
 }
 .service-call-dialog .form input,
 .service-call-dialog .form select {

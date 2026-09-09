@@ -115,9 +115,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     const requestedNumber = String(p.number ?? "").trim();
-    const number = /^TDK-\d{4}-\d{6}$/.test(requestedNumber)
+    const number = /^TDK-\d{6,10}$/.test(requestedNumber)
       ? requestedNumber
-      : `TDK-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+      : `TDK-${Date.now().toString().slice(-8)}`;
     const [call] = await getDb()
       .insert(serviceCalls)
       .values({

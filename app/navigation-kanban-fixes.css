@@ -1,0 +1,5 @@
+.sidebar { overflow: hidden; }
+.sidebar nav { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 4px; scrollbar-width: thin; scrollbar-color: #315273 transparent; }
+.service-column > div, .service-call-card { min-width: 0; max-width: 100%; }
+.service-call-card { overflow: hidden; }
+.service-call-card h3, .service-call-meta span { overflow-wrap: anywhere; }

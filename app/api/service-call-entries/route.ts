@@ -4,6 +4,7 @@ import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import {
   catalogItems,
+  equipmentItems,
   serviceCallEquipment,
   serviceCallExpenses,
   serviceCallMaterials,
@@ -61,7 +62,8 @@ export async function POST(request: Request) {
       type = String(p.type),
       serviceCallId = Number(p.serviceCallId),
       description = String(p.description ?? "").trim(),
-      catalogId = Number(p.catalogId);
+      catalogId = Number(p.catalogId),
+      equipmentItemId = Number(p.equipmentItemId);
     if (!serviceCallId || !description || !(type in tables))
       return Response.json(
         { error: "Informe o tipo e a descrição do lançamento." },
@@ -73,9 +75,7 @@ export async function POST(request: Request) {
         ? "servico"
         : type === "material"
           ? "material"
-          : type === "equipment"
-            ? "equipamento"
-            : null;
+          : null;
     let catalogItem: typeof catalogItems.$inferSelect | undefined;
     if (expectedCategory) {
       if (!catalogId)
@@ -97,6 +97,12 @@ export async function POST(request: Request) {
           { error: "O item selecionado não está disponível nesta categoria." },
           { status: 400 },
         );
+    }
+    let equipmentItem: typeof equipmentItems.$inferSelect | undefined;
+    if (type === "equipment") {
+      if (!equipmentItemId) return Response.json({ error: "Selecione um equipamento ou peça previamente cadastrado." }, { status: 400 });
+      [equipmentItem] = await getDb().select().from(equipmentItems).where(eq(equipmentItems.id, equipmentItemId)).limit(1);
+      if (!equipmentItem?.active) return Response.json({ error: "O equipamento ou peça selecionado não está disponível." }, { status: 400 });
     }
     if (type === "service")
       [entry] = await getDb()
@@ -121,6 +127,8 @@ export async function POST(request: Request) {
           quantity: Math.max(0.01, Number(p.quantity) || 1),
           unit: catalogItem!.unit,
           unitCost: catalogItem!.cost,
+          unitPrice: Math.max(0, Number(p.unitPrice) || 0),
+          priceTable: String(p.priceTable ?? "padrao"),
         })
         .returning();
     else if (type === "equipment")
@@ -128,9 +136,9 @@ export async function POST(request: Request) {
         .insert(serviceCallEquipment)
         .values({
           serviceCallId,
-          catalogId,
-          description: catalogItem!.description,
-          brandModel: String(p.brandModel ?? "").trim() || null,
+          equipmentItemId,
+          description: equipmentItem!.description,
+          brandModel: [equipmentItem!.brand, equipmentItem!.model].filter(Boolean).join(" / ") || String(p.brandModel ?? "").trim() || null,
           quantity: Math.max(0.01, Number(p.quantity) || 1),
           removedSerial: String(p.removedSerial ?? "").trim() || null,
           installedSerial: String(p.installedSerial ?? "").trim() || null,

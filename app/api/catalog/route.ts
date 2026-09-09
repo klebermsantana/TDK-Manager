@@ -1,10 +1,10 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, ne } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import { catalogItems } from "@/db/schema";
 
-const categories = new Set(["material", "servico", "equipamento"]);
+const categories = new Set(["material", "servico"]);
 const values = (payload: Record<string, unknown>) => ({
   category: String(payload.category ?? ""),
   code: String(payload.code ?? "").trim() || null,
@@ -30,6 +30,7 @@ export async function GET() {
       catalog: await getDb()
         .select()
         .from(catalogItems)
+        .where(ne(catalogItems.category, "equipamento"))
         .orderBy(asc(catalogItems.description)),
     });
   } catch {
