@@ -43,6 +43,28 @@
 .service-call-dialog .save-button {
   min-height: 49px !important;
 }
+.service-call-form-error {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid #f1bbc2;
+  border-radius: 9px;
+  background: #fff3f4;
+  color: #a52b39;
+  font-size: 12px;
+  font-weight: 700;
+}
+.service-call-form-error button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #8d1f2c;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
 @media (max-width: 760px) {
   [data-slot="dialog-content"].dialog.service-call-dialog {
     width: calc(100vw - 20px) !important;
