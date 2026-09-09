@@ -28,6 +28,16 @@ export const companies = sqliteTable("companies", {
   preferredPriceTable: text("preferred_price_table")
     .notNull()
     .default("padrao"),
+  isClient: integer("is_client", { mode: "boolean" }).notNull().default(true),
+  isServiceTaker: integer("is_service_taker", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  isServiceLocation: integer("is_service_location", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  logoStorageKey: text("logo_storage_key"),
+  logoContentType: text("logo_content_type"),
+  logoName: text("logo_name"),
   ownerId: integer("owner_id").references(() => users.id),
   createdAt: text("created_at")
     .notNull()
@@ -250,6 +260,9 @@ export const serviceCalls = sqliteTable(
     saleId: integer("sale_id").references(() => sales.id),
     location: text("location"),
     locationId: integer("location_id").references(() => serviceLocations.id),
+    locationCompanyId: integer("location_company_id").references(
+      () => companies.id,
+    ),
     contactName: text("contact_name"),
     technician: text("technician"),
     serviceType: text("service_type").notNull().default("visita"),

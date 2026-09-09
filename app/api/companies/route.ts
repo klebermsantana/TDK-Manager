@@ -6,70 +6,139 @@ import { companies, contacts, opportunities } from "@/db/schema";
 
 export async function GET() {
   const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  if (!user)
+    return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
-    return Response.json({ companies: await getDb().select().from(companies).orderBy(asc(companies.name)) });
+    return Response.json({
+      companies: await getDb()
+        .select()
+        .from(companies)
+        .orderBy(asc(companies.name)),
+    });
   } catch {
-    return Response.json({ error: "Não foi possível carregar as empresas." }, { status: 503 });
+    return Response.json(
+      { error: "Não foi possível carregar as empresas." },
+      { status: 503 },
+    );
   }
 }
 
 export async function POST(request: Request) {
-  const denied=await requirePermission("crm"); if(denied)return denied;
+  const denied = await requirePermission("crm");
+  if (denied) return denied;
   const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  if (!user)
+    return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
-    const payload = await request.json() as Record<string, unknown>;
+    const payload = (await request.json()) as Record<string, unknown>;
     const name = String(payload.name ?? "").trim();
-    if (!name) return Response.json({ error: "O nome da empresa é obrigatório." }, { status: 400 });
-    const [company] = await getDb().insert(companies).values({
-      name,
-      document: String(payload.document ?? "").trim() || null,
-      segment: String(payload.segment ?? "").trim() || null,
-      preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
-    }).returning();
+    if (!name)
+      return Response.json(
+        { error: "O nome da empresa é obrigatório." },
+        { status: 400 },
+      );
+    const [company] = await getDb()
+      .insert(companies)
+      .values({
+        name,
+        document: String(payload.document ?? "").trim() || null,
+        segment: String(payload.segment ?? "").trim() || null,
+        preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
+        isClient: Boolean(payload.isClient),
+        isServiceTaker: Boolean(payload.isServiceTaker),
+        isServiceLocation: Boolean(payload.isServiceLocation),
+      })
+      .returning();
     return Response.json({ company }, { status: 201 });
   } catch {
-    return Response.json({ error: "Não foi possível cadastrar a empresa." }, { status: 500 });
+    return Response.json(
+      { error: "Não foi possível cadastrar a empresa." },
+      { status: 500 },
+    );
   }
 }
 
 export async function PATCH(request: Request) {
-  const denied=await requirePermission("crm"); if(denied)return denied;
+  const denied = await requirePermission("crm");
+  if (denied) return denied;
   const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  if (!user)
+    return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
-    const payload = await request.json() as Record<string, unknown>;
+    const payload = (await request.json()) as Record<string, unknown>;
     const id = Number(payload.id);
     const name = String(payload.name ?? "").trim();
-    if (!id || !name) return Response.json({ error: "Empresa inválida." }, { status: 400 });
-    const [company] = await getDb().update(companies).set({
-      name,
-      document: String(payload.document ?? "").trim() || null,
-      segment: String(payload.segment ?? "").trim() || null,
-      preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
-    }).where(eq(companies.id, id)).returning();
-    if (!company) return Response.json({ error: "Empresa não encontrada." }, { status: 404 });
+    if (!id || !name)
+      return Response.json({ error: "Empresa inválida." }, { status: 400 });
+    const [company] = await getDb()
+      .update(companies)
+      .set({
+        name,
+        document: String(payload.document ?? "").trim() || null,
+        segment: String(payload.segment ?? "").trim() || null,
+        preferredPriceTable: String(payload.preferredPriceTable ?? "padrao"),
+        isClient: Boolean(payload.isClient),
+        isServiceTaker: Boolean(payload.isServiceTaker),
+        isServiceLocation: Boolean(payload.isServiceLocation),
+      })
+      .where(eq(companies.id, id))
+      .returning();
+    if (!company)
+      return Response.json(
+        { error: "Empresa não encontrada." },
+        { status: 404 },
+      );
     return Response.json({ company });
   } catch {
-    return Response.json({ error: "Não foi possível atualizar a empresa." }, { status: 500 });
+    return Response.json(
+      { error: "Não foi possível atualizar a empresa." },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(request: Request) {
-  const denied=await requirePermission("crm"); if(denied)return denied;
+  const denied = await requirePermission("crm");
+  if (denied) return denied;
   const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
+  if (!user)
+    return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
     const id = Number(new URL(request.url).searchParams.get("id"));
-    if (!id) return Response.json({ error: "Empresa inválida." }, { status: 400 });
-    const [linkedContact] = await getDb().select({ id: contacts.id }).from(contacts).where(eq(contacts.companyId, id)).limit(1);
-    const [linkedOpportunity] = await getDb().select({ id: opportunities.id }).from(opportunities).where(eq(opportunities.companyId, id)).limit(1);
-    if (linkedContact || linkedOpportunity) return Response.json({ error: "Esta empresa possui contatos ou oportunidades vinculados. Exclua os vínculos primeiro." }, { status: 409 });
-    const [company] = await getDb().delete(companies).where(eq(companies.id, id)).returning();
-    if (!company) return Response.json({ error: "Empresa não encontrada." }, { status: 404 });
+    if (!id)
+      return Response.json({ error: "Empresa inválida." }, { status: 400 });
+    const [linkedContact] = await getDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.companyId, id))
+      .limit(1);
+    const [linkedOpportunity] = await getDb()
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(eq(opportunities.companyId, id))
+      .limit(1);
+    if (linkedContact || linkedOpportunity)
+      return Response.json(
+        {
+          error:
+            "Esta empresa possui contatos ou oportunidades vinculados. Exclua os vínculos primeiro.",
+        },
+        { status: 409 },
+      );
+    const [company] = await getDb()
+      .delete(companies)
+      .where(eq(companies.id, id))
+      .returning();
+    if (!company)
+      return Response.json(
+        { error: "Empresa não encontrada." },
+        { status: 404 },
+      );
     return Response.json({ success: true });
   } catch {
-    return Response.json({ error: "Não foi possível excluir a empresa." }, { status: 500 });
+    return Response.json(
+      { error: "Não foi possível excluir a empresa." },
+      { status: 500 },
+    );
   }
 }

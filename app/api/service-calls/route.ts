@@ -8,7 +8,6 @@ import {
   serviceCallHistory,
   serviceCalls,
   serviceCallServices,
-  serviceLocations,
 } from "@/db/schema";
 
 const statuses = new Set([
@@ -72,7 +71,7 @@ export async function POST(request: Request) {
     const p = (await request.json()) as Record<string, unknown>;
     const companyId = Number(p.companyId),
       serviceTakerCompanyId = Number(p.serviceTakerCompanyId),
-      locationId = Number(p.locationId),
+      locationCompanyId = Number(p.locationCompanyId),
       subject = String(p.subject ?? "").trim(),
       description = String(p.description ?? "").trim();
     const [company] = await getDb()
@@ -87,11 +86,11 @@ export async function POST(request: Request) {
           .where(eq(companies.id, serviceTakerCompanyId))
           .limit(1)
       : [];
-    const [serviceLocation] = locationId
+    const [serviceLocationCompany] = locationCompanyId
       ? await getDb()
           .select()
-          .from(serviceLocations)
-          .where(eq(serviceLocations.id, locationId))
+          .from(companies)
+          .where(eq(companies.id, locationCompanyId))
           .limit(1)
       : [];
     const priority = priorities.has(String(p.priority))
@@ -99,9 +98,12 @@ export async function POST(request: Request) {
       : "normal";
     if (
       !company ||
-      (serviceTakerCompanyId && !serviceTakerCompany) ||
-      (locationId &&
-        (!serviceLocation || serviceLocation.companyId !== companyId)) ||
+      !company.isClient ||
+      (serviceTakerCompanyId &&
+        (!serviceTakerCompany || !serviceTakerCompany.isServiceTaker)) ||
+      (locationCompanyId &&
+        (!serviceLocationCompany ||
+          !serviceLocationCompany.isServiceLocation)) ||
       !subject ||
       !description
     )
@@ -112,7 +114,10 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
-    const number = `OS-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+    const requestedNumber = String(p.number ?? "").trim();
+    const number = /^OS-\d{4}-\d{6}$/.test(requestedNumber)
+      ? requestedNumber
+      : `OS-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
     const [call] = await getDb()
       .insert(serviceCalls)
       .values({
@@ -125,10 +130,9 @@ export async function POST(request: Request) {
         department: String(p.department ?? "").trim() || null,
         customerTicket: String(p.customerTicket ?? "").trim() || null,
         saleId: Number(p.saleId) || null,
-        locationId: locationId || null,
-        location: serviceLocation
-          ? `${serviceLocation.name} — ${serviceLocation.address}`
-          : null,
+        locationId: null,
+        locationCompanyId: locationCompanyId || null,
+        location: serviceLocationCompany?.name ?? null,
         contactName: String(p.contactName ?? "").trim() || null,
         technician: String(p.technician ?? "").trim() || null,
         serviceType: String(p.serviceType ?? "visita"),
@@ -208,6 +212,8 @@ export async function PATCH(request: Request) {
       saleId: Number(p.saleId ?? current.saleId) || null,
       location: String(p.location ?? current.location ?? "").trim() || null,
       locationId: Number(p.locationId ?? current.locationId) || null,
+      locationCompanyId:
+        Number(p.locationCompanyId ?? current.locationCompanyId) || null,
       contactName:
         String(p.contactName ?? current.contactName ?? "").trim() || null,
       technician:
@@ -259,18 +265,21 @@ export async function PATCH(request: Request) {
           .where(eq(companies.id, values.serviceTakerCompanyId))
           .limit(1)
       : [];
-    const [selectedLocation] = values.locationId
+    const [selectedLocationCompany] = values.locationCompanyId
       ? await getDb()
           .select()
-          .from(serviceLocations)
-          .where(eq(serviceLocations.id, values.locationId))
+          .from(companies)
+          .where(eq(companies.id, values.locationCompanyId))
           .limit(1)
       : [];
     if (
       !selectedCompany ||
-      (values.serviceTakerCompanyId && !selectedTaker) ||
-      (values.locationId &&
-        (!selectedLocation || selectedLocation.companyId !== values.companyId))
+      !selectedCompany.isClient ||
+      (values.serviceTakerCompanyId &&
+        (!selectedTaker || !selectedTaker.isServiceTaker)) ||
+      (values.locationCompanyId &&
+        (!selectedLocationCompany ||
+          !selectedLocationCompany.isServiceLocation))
     )
       return Response.json(
         {
@@ -281,9 +290,7 @@ export async function PATCH(request: Request) {
       );
     values.companyName = selectedCompany.name;
     values.serviceTaker = selectedTaker?.name ?? null;
-    values.location = selectedLocation
-      ? `${selectedLocation.name} — ${selectedLocation.address}`
-      : null;
+    values.location = selectedLocationCompany?.name ?? values.location;
     if (status !== "triagem" && status !== "cancelado") {
       const missing = [
         !values.serviceTaker && "tomador do serviço",
