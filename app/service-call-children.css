@@ -1,0 +1,163 @@
+.service-children {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid #cfe1f2;
+  border-radius: 12px;
+  background: #f7fbff;
+}
+.service-children > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid #dce9f5;
+}
+.service-children > header svg {
+  width: 20px;
+  color: #1478ff;
+}
+.service-children > header strong,
+.service-children > header small {
+  display: block;
+}
+.service-children > header strong {
+  color: #214362;
+  font-size: 13px;
+}
+.service-children > header small {
+  margin-top: 2px;
+  color: #718096;
+  font-size: 10px;
+}
+.service-children > nav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.service-children > nav button {
+  min-height: 38px;
+  padding: 7px;
+  border: 1px solid #d6e2ed;
+  border-radius: 9px;
+  background: #fff;
+  color: #526a83;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.service-children > nav button.active {
+  border-color: #1876de;
+  background: #e7f2ff;
+  color: #0b5cb8;
+  box-shadow: 0 0 0 2px #1478ff12;
+}
+.service-children > nav span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 3px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #e9eef4;
+  font-size: 9px;
+}
+.service-child-form {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 12px;
+  border: 1px solid #e0e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.service-child-line {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px !important;
+}
+.service-child-line > div {
+  display: grid;
+  gap: 5px;
+}
+.service-child-form > button {
+  justify-self: start;
+  background: #0e6fd8;
+  color: #fff;
+  font-weight: 800;
+}
+.service-child-list {
+  display: grid;
+  gap: 6px;
+}
+.service-child-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid #dfe8f0;
+  border-radius: 9px;
+  background: #fff;
+}
+.service-child-list strong,
+.service-child-list small {
+  display: block;
+}
+.service-child-list strong {
+  color: #263e58;
+  font-size: 11px;
+}
+.service-child-list small {
+  margin-top: 3px;
+  color: #718096;
+  font-size: 9px;
+}
+.service-child-list article > button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid #f0c8cd;
+  border-radius: 7px;
+  background: #fff5f6;
+  color: #b33c49;
+  cursor: pointer;
+}
+.service-child-list article > button svg {
+  width: 13px;
+}
+.service-child-list > p {
+  margin: 0;
+  padding: 10px;
+  color: #718096;
+  font-size: 10px;
+  text-align: center;
+}
+.service-child-error {
+  margin: 0;
+  color: #b42332;
+  font-size: 10px;
+  font-weight: 700;
+}
+.service-execution-form > header,
+.service-execution-form > .service-execution-check,
+.service-execution-form
+  > div:not(.service-evidence):not(.service-evidence-grid) {
+  display: none;
+}
+.service-execution-form > .service-execution-check + div {
+  display: none;
+}
+@media (max-width: 700px) {
+  .service-children > nav {
+    grid-template-columns: 1fr 1fr;
+  }
+  .service-child-line {
+    grid-template-columns: 1fr;
+  }
+  .service-child-form > button {
+    width: 100%;
+  }
+}
