@@ -3,6 +3,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import {
+  catalogItems,
   serviceCallEquipment,
   serviceCallExpenses,
   serviceCallMaterials,
@@ -59,21 +60,53 @@ export async function POST(request: Request) {
     const p = (await request.json()) as Record<string, unknown>,
       type = String(p.type),
       serviceCallId = Number(p.serviceCallId),
-      description = String(p.description ?? "").trim();
+      description = String(p.description ?? "").trim(),
+      catalogId = Number(p.catalogId);
     if (!serviceCallId || !description || !(type in tables))
       return Response.json(
         { error: "Informe o tipo e a descrição do lançamento." },
         { status: 400 },
       );
     let entry;
+    const expectedCategory =
+      type === "service"
+        ? "servico"
+        : type === "material"
+          ? "material"
+          : type === "equipment"
+            ? "equipamento"
+            : null;
+    let catalogItem: typeof catalogItems.$inferSelect | undefined;
+    if (expectedCategory) {
+      if (!catalogId)
+        return Response.json(
+          { error: "Selecione um item previamente cadastrado no catálogo." },
+          { status: 400 },
+        );
+      [catalogItem] = await getDb()
+        .select()
+        .from(catalogItems)
+        .where(eq(catalogItems.id, catalogId))
+        .limit(1);
+      if (
+        !catalogItem ||
+        !catalogItem.active ||
+        catalogItem.category !== expectedCategory
+      )
+        return Response.json(
+          { error: "O item selecionado não está disponível nesta categoria." },
+          { status: 400 },
+        );
+    }
     if (type === "service")
       [entry] = await getDb()
         .insert(serviceCallServices)
         .values({
           serviceCallId,
-          description,
+          catalogId,
+          description: catalogItem!.description,
           quantity: Math.max(0.01, Number(p.quantity) || 1),
-          unit: String(p.unit ?? "serviço"),
+          unit: catalogItem!.unit,
           technician: String(p.technician ?? "").trim() || null,
           notes: String(p.notes ?? "").trim() || null,
         })
@@ -83,11 +116,11 @@ export async function POST(request: Request) {
         .insert(serviceCallMaterials)
         .values({
           serviceCallId,
-          catalogId: Number(p.catalogId) || null,
-          description,
+          catalogId,
+          description: catalogItem!.description,
           quantity: Math.max(0.01, Number(p.quantity) || 1),
-          unit: String(p.unit ?? "un"),
-          unitCost: Math.max(0, Number(p.unitCost) || 0),
+          unit: catalogItem!.unit,
+          unitCost: catalogItem!.cost,
         })
         .returning();
     else if (type === "equipment")
@@ -95,7 +128,8 @@ export async function POST(request: Request) {
         .insert(serviceCallEquipment)
         .values({
           serviceCallId,
-          description,
+          catalogId,
+          description: catalogItem!.description,
           brandModel: String(p.brandModel ?? "").trim() || null,
           quantity: Math.max(0.01, Number(p.quantity) || 1),
           removedSerial: String(p.removedSerial ?? "").trim() || null,

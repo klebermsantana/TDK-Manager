@@ -1,0 +1,2 @@
+ALTER TABLE `service_call_equipment` ADD `catalog_id` integer REFERENCES catalog_items(id);--> statement-breakpoint
+ALTER TABLE `service_call_services` ADD `catalog_id` integer REFERENCES catalog_items(id);

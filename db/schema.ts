@@ -301,6 +301,7 @@ export const serviceCallServices = sqliteTable(
     serviceCallId: integer("service_call_id")
       .notNull()
       .references(() => serviceCalls.id),
+    catalogId: integer("catalog_id").references(() => catalogItems.id),
     description: text("description").notNull(),
     quantity: real("quantity").notNull().default(1),
     unit: text("unit").notNull().default("serviço"),
@@ -337,6 +338,7 @@ export const serviceCallEquipment = sqliteTable(
     serviceCallId: integer("service_call_id")
       .notNull()
       .references(() => serviceCalls.id),
+    catalogId: integer("catalog_id").references(() => catalogItems.id),
     description: text("description").notNull(),
     brandModel: text("brand_model"),
     quantity: real("quantity").notNull().default(1),
