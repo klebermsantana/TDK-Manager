@@ -2,12 +2,11 @@
   position: absolute;
   top: 27px;
   right: 78px;
-  padding: 7px 10px;
-  border: 1px solid #bcd6f0;
-  border-radius: 8px;
-  background: #edf6ff;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
   color: #1268c7;
-  font-size: 11px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 0.04em;
 }
