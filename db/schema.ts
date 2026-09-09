@@ -114,6 +114,8 @@ export const equipmentItems = sqliteTable("equipment_items", {
   description: text("description").notNull(),
   brand: text("brand"),
   model: text("model"),
+  serialNumber: text("serial_number"),
+  inventoryNumber: text("inventory_number"),
   unit: text("unit").notNull().default("un"),
   cost: real("cost").notNull().default(0),
   active: integer("active", { mode: "boolean" }).notNull().default(true),

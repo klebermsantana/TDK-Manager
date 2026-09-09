@@ -9,6 +9,8 @@ const values = (p: Record<string, unknown>) => ({
   description: String(p.description ?? "").trim(),
   brand: String(p.brand ?? "").trim() || null,
   model: String(p.model ?? "").trim() || null,
+  serialNumber: String(p.serialNumber ?? "").trim() || null,
+  inventoryNumber: String(p.inventoryNumber ?? "").trim() || null,
   unit: String(p.unit ?? "un").trim() || "un",
   cost: Math.max(0, Number(p.cost) || 0),
 });

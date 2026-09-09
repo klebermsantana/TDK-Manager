@@ -204,6 +204,13 @@
       "when": 1788986783062,
       "tag": "0028_flimsy_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1788992117027,
+      "tag": "0029_chemical_mantis",
+      "breakpoints": true
     }
   ]
 }

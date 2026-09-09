@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   BriefcaseBusiness,
@@ -201,6 +201,8 @@ type EquipmentCatalogItem = {
   description: string;
   brand: string | null;
   model: string | null;
+  serialNumber: string | null;
+  inventoryNumber: string | null;
   unit: string;
   cost: number;
   active: boolean;
@@ -629,7 +631,7 @@ export default function CrmDashboard({
     valuePrice: "",
   });
   const [equipmentForm, setEquipmentForm] = useState({
-    code: "", description: "", brand: "", model: "", unit: "un", cost: "",
+    code: "", description: "", brand: "", model: "", serialNumber: "", inventoryNumber: "", unit: "un", cost: "",
   });
   const [payableForm, setPayableForm] = useState({
     supplierName: "",
@@ -927,7 +929,7 @@ export default function CrmDashboard({
     }
     if (kind === "equipment") {
       setEditingId(null);
-      setEquipmentForm({ code: "", description: "", brand: "", model: "", unit: "un", cost: "" });
+      setEquipmentForm({ code: "", description: "", brand: "", model: "", serialNumber: "", inventoryNumber: "", unit: "un", cost: "" });
     }
     if (kind === "payable")
       setPayableForm({
@@ -1448,7 +1450,7 @@ export default function CrmDashboard({
   }
   function editEquipment(item: EquipmentCatalogItem) {
     setEditingId(item.id);
-    setEquipmentForm({ code: item.code ?? "", description: item.description, brand: item.brand ?? "", model: item.model ?? "", unit: item.unit, cost: String(item.cost) });
+    setEquipmentForm({ code: item.code ?? "", description: item.description, brand: item.brand ?? "", model: item.model ?? "", serialNumber: item.serialNumber ?? "", inventoryNumber: item.inventoryNumber ?? "", unit: item.unit, cost: String(item.cost) });
     setDialog("equipment");
   }
   async function deleteEquipment(item: EquipmentCatalogItem) {
@@ -5030,7 +5032,7 @@ export default function CrmDashboard({
       >
         <DialogContent className="dialog catalog-dialog">
           <DialogHeader>
-            <span className="dialog-kicker">CADASTRO TÉCNICO</span>
+            <span className="dialog-kicker">EQUIPAMENTOS E PEÇAS</span>
             <DialogTitle>{editingId ? "Editar equipamento ou peça" : "Novo equipamento ou peça"}</DialogTitle>
             <DialogDescription>Cadastre separadamente os itens utilizados ou substituídos nos atendimentos.</DialogDescription>
           </DialogHeader>
@@ -5043,6 +5045,10 @@ export default function CrmDashboard({
             <div className="form-split">
               <Field label="Marca"><Input value={equipmentForm.brand} onChange={(e) => setEquipmentForm({...equipmentForm, brand:e.target.value})} /></Field>
               <Field label="Modelo"><Input value={equipmentForm.model} onChange={(e) => setEquipmentForm({...equipmentForm, model:e.target.value})} /></Field>
+            </div>
+            <div className="form-split">
+              <ScanCodeField label="Número serial" value={equipmentForm.serialNumber} onChange={(serialNumber) => setEquipmentForm({...equipmentForm, serialNumber})} />
+              <ScanCodeField label="Número de inventário" value={equipmentForm.inventoryNumber} onChange={(inventoryNumber) => setEquipmentForm({...equipmentForm, inventoryNumber})} />
             </div>
             <Field label="Custo (R$)"><Input type="number" min="0" step="0.01" value={equipmentForm.cost} onChange={(e) => setEquipmentForm({...equipmentForm, cost:e.target.value})} /></Field>
             <SaveButton saving={saving}>{editingId ? "Salvar alterações" : "Cadastrar equipamento"}</SaveButton>
@@ -5535,6 +5541,51 @@ function NavButton({
       {children}
     </button>
   );
+}
+function ScanCodeField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState("");
+  const scanImage = async (file?: File) => {
+    if (!file) return;
+    try {
+      const Detector = (window as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector;
+      if (!Detector) throw new Error("A leitura pela câmera não está disponível neste navegador.");
+      setMessage("Lendo código…");
+      const image = await createImageBitmap(file);
+      const results = await new Detector({ formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "data_matrix"] }).detect(image);
+      image.close();
+      if (!results[0]?.rawValue) throw new Error("Nenhum código foi identificado. Tente aproximar a câmera.");
+      onChange(results[0].rawValue);
+      setMessage("Código lido com sucesso.");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Não foi possível ler o código.");
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+  const scanNfc = async () => {
+    try {
+      const Reader = (window as unknown as { NDEFReader?: new () => { scan: () => Promise<void>; addEventListener: (type: string, listener: (event: { serialNumber?: string; message?: { records?: Array<{ data?: DataView }> } }) => void, options?: { once?: boolean }) => void } }).NDEFReader;
+      if (!Reader) throw new Error("A leitura NFC não está disponível neste aparelho ou navegador.");
+      const reader = new Reader();
+      await reader.scan();
+      setMessage("Aproxime a etiqueta NFC do aparelho…");
+      reader.addEventListener("reading", (event) => {
+        const record = event.message?.records?.[0];
+        const decoded = record?.data ? new TextDecoder().decode(record.data) : "";
+        const result = decoded || event.serialNumber || "";
+        if (result) { onChange(result); setMessage("NFC lido com sucesso."); }
+      }, { once: true });
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Não foi possível ler a etiqueta NFC.");
+    }
+  };
+  return <div className="scan-code-field">
+    <Label>{label}</Label>
+    <div><Input value={value} onChange={(event) => onChange(event.target.value)} /><button type="button" onClick={() => fileRef.current?.click()}>Câmera / QR</button><button type="button" onClick={scanNfc}>NFC</button></div>
+    <input ref={fileRef} className="scan-code-file" type="file" accept="image/*" capture="environment" onChange={(event) => scanImage(event.target.files?.[0])} />
+    {message && <small>{message}</small>}
+  </div>;
 }
 function Field({
   label,
@@ -9209,7 +9260,7 @@ function EquipmentCatalog({ items, add, edit, remove }: {
   return <div className="catalog-list">
     <div className="catalog-table-head"><span>Item</span><span>Marca</span><span>Modelo</span><span>Unidade</span><span>Custo</span><span /></div>
     {items.map((item) => <article className="catalog-row" key={item.id}>
-      <div><small>{item.code || "Sem código"}</small><strong>{item.description}</strong></div>
+      <div><small>{item.code || "Sem código"}</small><strong>{item.description}</strong><em>{[item.serialNumber && `Serial: ${item.serialNumber}`, item.inventoryNumber && `Inventário: ${item.inventoryNumber}`].filter(Boolean).join(" · ")}</em></div>
       <span>{item.brand || "—"}</span><span>{item.model || "—"}</span><span>{item.unit}</span><span>{money(item.cost)}</span>
       <div className="record-actions"><button aria-label={`Editar ${item.description}`} onClick={() => edit(item)}><Pencil /></button><button className="danger" aria-label={`Excluir ${item.description}`} onClick={() => remove(item)}><Trash2 /></button></div>
     </article>)}
