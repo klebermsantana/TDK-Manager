@@ -3,10 +3,12 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import {
+  companies,
   serviceCallFiles,
   serviceCallHistory,
   serviceCalls,
   serviceCallServices,
+  serviceLocations,
 } from "@/db/schema";
 
 const statuses = new Set([
@@ -68,15 +70,46 @@ export async function POST(request: Request) {
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
     const p = (await request.json()) as Record<string, unknown>;
-    const companyName = String(p.companyName ?? "").trim(),
+    const companyId = Number(p.companyId),
+      serviceTakerCompanyId = Number(p.serviceTakerCompanyId),
+      locationId = Number(p.locationId),
       subject = String(p.subject ?? "").trim(),
       description = String(p.description ?? "").trim();
+    const [company] = await getDb()
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+    const [serviceTakerCompany] = serviceTakerCompanyId
+      ? await getDb()
+          .select()
+          .from(companies)
+          .where(eq(companies.id, serviceTakerCompanyId))
+          .limit(1)
+      : [];
+    const [serviceLocation] = locationId
+      ? await getDb()
+          .select()
+          .from(serviceLocations)
+          .where(eq(serviceLocations.id, locationId))
+          .limit(1)
+      : [];
     const priority = priorities.has(String(p.priority))
       ? String(p.priority)
       : "normal";
-    if (!companyName || !subject || !description)
+    if (
+      !company ||
+      (serviceTakerCompanyId && !serviceTakerCompany) ||
+      (locationId &&
+        (!serviceLocation || serviceLocation.companyId !== companyId)) ||
+      !subject ||
+      !description
+    )
       return Response.json(
-        { error: "Informe cliente, assunto e descrição do chamado." },
+        {
+          error:
+            "Selecione um cliente cadastrado e revise os dados do chamado.",
+        },
         { status: 400 },
       );
     const number = `OS-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
@@ -84,14 +117,18 @@ export async function POST(request: Request) {
       .insert(serviceCalls)
       .values({
         number,
-        companyId: Number(p.companyId) || null,
-        companyName,
-        serviceTaker: String(p.serviceTaker ?? "").trim() || null,
+        companyId,
+        serviceTakerCompanyId: serviceTakerCompanyId || null,
+        companyName: company.name,
+        serviceTaker: serviceTakerCompany?.name ?? null,
         requestOrigin: String(p.requestOrigin ?? "").trim() || null,
         department: String(p.department ?? "").trim() || null,
         customerTicket: String(p.customerTicket ?? "").trim() || null,
         saleId: Number(p.saleId) || null,
-        location: String(p.location ?? "").trim() || null,
+        locationId: locationId || null,
+        location: serviceLocation
+          ? `${serviceLocation.name} — ${serviceLocation.address}`
+          : null,
         contactName: String(p.contactName ?? "").trim() || null,
         technician: String(p.technician ?? "").trim() || null,
         serviceType: String(p.serviceType ?? "visita"),
@@ -103,14 +140,12 @@ export async function POST(request: Request) {
         createdBy: user.displayName,
       })
       .returning();
-    await getDb()
-      .insert(serviceCallHistory)
-      .values({
-        serviceCallId: call.id,
-        fromStatus: null,
-        toStatus: "triagem",
-        changedBy: user.displayName,
-      });
+    await getDb().insert(serviceCallHistory).values({
+      serviceCallId: call.id,
+      fromStatus: null,
+      toStatus: "triagem",
+      changedBy: user.displayName,
+    });
     return Response.json({ call }, { status: 201 });
   } catch {
     return Response.json(
@@ -158,6 +193,9 @@ export async function PATCH(request: Request) {
     const values = {
       ...current,
       companyId: Number(p.companyId ?? current.companyId) || null,
+      serviceTakerCompanyId:
+        Number(p.serviceTakerCompanyId ?? current.serviceTakerCompanyId) ||
+        null,
       companyName: String(p.companyName ?? current.companyName).trim(),
       serviceTaker:
         String(p.serviceTaker ?? current.serviceTaker ?? "").trim() || null,
@@ -169,6 +207,7 @@ export async function PATCH(request: Request) {
         String(p.customerTicket ?? current.customerTicket ?? "").trim() || null,
       saleId: Number(p.saleId ?? current.saleId) || null,
       location: String(p.location ?? current.location ?? "").trim() || null,
+      locationId: Number(p.locationId ?? current.locationId) || null,
       contactName:
         String(p.contactName ?? current.contactName ?? "").trim() || null,
       technician:
@@ -206,6 +245,45 @@ export async function PATCH(request: Request) {
       status,
       updatedAt: new Date().toISOString(),
     };
+    const [selectedCompany] = values.companyId
+      ? await getDb()
+          .select()
+          .from(companies)
+          .where(eq(companies.id, values.companyId))
+          .limit(1)
+      : [];
+    const [selectedTaker] = values.serviceTakerCompanyId
+      ? await getDb()
+          .select()
+          .from(companies)
+          .where(eq(companies.id, values.serviceTakerCompanyId))
+          .limit(1)
+      : [];
+    const [selectedLocation] = values.locationId
+      ? await getDb()
+          .select()
+          .from(serviceLocations)
+          .where(eq(serviceLocations.id, values.locationId))
+          .limit(1)
+      : [];
+    if (
+      !selectedCompany ||
+      (values.serviceTakerCompanyId && !selectedTaker) ||
+      (values.locationId &&
+        (!selectedLocation || selectedLocation.companyId !== values.companyId))
+    )
+      return Response.json(
+        {
+          error:
+            "Selecione tomador, cliente e local de atendimento cadastrados.",
+        },
+        { status: 400 },
+      );
+    values.companyName = selectedCompany.name;
+    values.serviceTaker = selectedTaker?.name ?? null;
+    values.location = selectedLocation
+      ? `${selectedLocation.name} — ${selectedLocation.address}`
+      : null;
     if (status !== "triagem" && status !== "cancelado") {
       const missing = [
         !values.serviceTaker && "tomador do serviço",
@@ -278,14 +356,12 @@ export async function PATCH(request: Request) {
       .where(eq(serviceCalls.id, id))
       .returning();
     if (current.status !== status)
-      await getDb()
-        .insert(serviceCallHistory)
-        .values({
-          serviceCallId: id,
-          fromStatus: current.status,
-          toStatus: status,
-          changedBy: user.displayName,
-        });
+      await getDb().insert(serviceCallHistory).values({
+        serviceCallId: id,
+        fromStatus: current.status,
+        toStatus: status,
+        changedBy: user.displayName,
+      });
     return Response.json({ call });
   } catch {
     return Response.json(

@@ -214,12 +214,34 @@ export const projectFiles = sqliteTable(
   },
   (table) => [index("idx_project_files_sale").on(table.saleId)],
 );
+export const serviceLocations = sqliteTable(
+  "service_locations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companies.id),
+    name: text("name").notNull(),
+    address: text("address").notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("idx_service_locations_company").on(table.companyId)],
+);
 export const serviceCalls = sqliteTable(
   "service_calls",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     number: text("number").notNull().unique(),
     companyId: integer("company_id").references(() => companies.id),
+    serviceTakerCompanyId: integer("service_taker_company_id").references(
+      () => companies.id,
+    ),
     companyName: text("company_name").notNull(),
     serviceTaker: text("service_taker"),
     requestOrigin: text("request_origin"),
@@ -227,6 +249,7 @@ export const serviceCalls = sqliteTable(
     customerTicket: text("customer_ticket"),
     saleId: integer("sale_id").references(() => sales.id),
     location: text("location"),
+    locationId: integer("location_id").references(() => serviceLocations.id),
     contactName: text("contact_name"),
     technician: text("technician"),
     serviceType: text("service_type").notNull().default("visita"),
