@@ -38,6 +38,8 @@ type ProfitPayload = {
   };
 };
 
+type ResultFilter = "all" | "negative" | "unallocated" | "active" | "concluded";
+
 const statusLabels: Record<string, string> = {
   aberto: "Aberto",
   acionado: "Acionado",
@@ -48,6 +50,8 @@ const statusLabels: Record<string, string> = {
   concluido: "Concluído",
   cancelado: "Cancelado",
 };
+
+const terminalStatuses = new Set(["concluido", "cancelado"]);
 
 function serviceViewVisible() {
   if (document.querySelector(".service-column, .service-call-card, .service-call-sheet")) return true;
@@ -78,6 +82,19 @@ function toMs(value: string) {
   return Number.isFinite(result) ? result : 0;
 }
 
+function monthKey(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit" })
+    .format(new Date(year, month - 1, 1))
+    .replace(" de ", "/");
+}
+
 export function ServiceCallProfitabilityDashboard() {
   const [visible, setVisible] = useState(false);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
@@ -88,6 +105,7 @@ export function ServiceCallProfitabilityDashboard() {
   const [period, setPeriod] = useState<"30" | "90" | "all">("30");
   const [client, setClient] = useState("");
   const [technician, setTechnician] = useState("");
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
   const [editing, setEditing] = useState<ProfitRow | null>(null);
   const [revenue, setRevenue] = useState("");
   const [notes, setNotes] = useState("");
@@ -146,14 +164,25 @@ export function ServiceCallProfitabilityDashboard() {
     [payload],
   );
 
-  const rows = useMemo(() => {
+  const scopedRows = useMemo(() => {
     const cutoff = period === "all" ? 0 : Date.now() - Number(period) * 86400000;
     return (payload?.rows ?? [])
       .filter((row) => toMs(row.createdAt) >= cutoff)
       .filter((row) => !client || row.companyName === client)
-      .filter((row) => !technician || (row.technician?.trim() || "") === technician)
-      .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+      .filter((row) => !technician || (row.technician?.trim() || "") === technician);
   }, [payload, period, client, technician]);
+
+  const rows = useMemo(() => {
+    return scopedRows
+      .filter((row) => {
+        if (resultFilter === "negative") return row.marginAmount !== null && row.marginAmount < 0;
+        if (resultFilter === "unallocated") return row.revenueAmount === null;
+        if (resultFilter === "active") return !terminalStatuses.has(row.status);
+        if (resultFilter === "concluded") return row.status === "concluido";
+        return true;
+      })
+      .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+  }, [scopedRows, resultFilter]);
 
   const summary = useMemo(() => {
     const allocated = rows.filter((row) => row.revenueAmount !== null);
@@ -173,8 +202,47 @@ export function ServiceCallProfitabilityDashboard() {
       services: rows.reduce((total, row) => total + row.serviceCost, 0),
       equipment: rows.reduce((total, row) => total + row.equipmentCost, 0),
       expenses: rows.reduce((total, row) => total + row.expenseCost, 0),
+      ticket: allocated.length ? revenue / allocated.length : null,
+      costRatio: revenue > 0 ? (allocatedCost / revenue) * 100 : null,
     };
   }, [rows]);
+
+  const attentionRows = useMemo(() => {
+    return rows
+      .filter((row) => (row.marginAmount !== null && row.marginAmount < 0) || (row.revenueAmount === null && row.totalCost > 0))
+      .sort((a, b) => {
+        const aNegative = a.marginAmount !== null && a.marginAmount < 0 ? 1 : 0;
+        const bNegative = b.marginAmount !== null && b.marginAmount < 0 ? 1 : 0;
+        if (aNegative !== bNegative) return bNegative - aNegative;
+        return (a.marginAmount ?? 0) - (b.marginAmount ?? 0);
+      })
+      .slice(0, 10);
+  }, [rows]);
+
+  const trend = useMemo(() => {
+    const buckets = new Map<string, { revenue: number; cost: number; margin: number; calls: number }>();
+    rows.forEach((row) => {
+      const key = monthKey(row.createdAt);
+      if (!key) return;
+      const current = buckets.get(key) ?? { revenue: 0, cost: 0, margin: 0, calls: 0 };
+      current.calls += 1;
+      current.cost += row.totalCost;
+      if (row.revenueAmount !== null) {
+        current.revenue += row.revenueAmount;
+        current.margin += row.marginAmount ?? 0;
+      }
+      buckets.set(key, current);
+    });
+    return [...buckets.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([key, values]) => ({ key, label: monthLabel(key), ...values }));
+  }, [rows]);
+
+  const trendScale = useMemo(() => {
+    const values = trend.flatMap((item) => [item.revenue, item.cost, Math.abs(item.margin)]);
+    return Math.max(1, ...values);
+  }, [trend]);
 
   const byClient = useMemo(() => {
     const map = new Map<string, ProfitRow[]>();
@@ -185,7 +253,7 @@ export function ServiceCallProfitabilityDashboard() {
       const cost = allocated.reduce((total, item) => total + item.totalCost, 0);
       const margin = revenue - cost;
       return { name, calls: items.length, revenue, margin, marginPercent: revenue > 0 ? margin / revenue * 100 : null };
-    }).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+    }).sort((a, b) => b.margin - a.margin).slice(0, 8);
   }, [rows]);
 
   function startEdit(row: ProfitRow) {
@@ -245,7 +313,8 @@ export function ServiceCallProfitabilityDashboard() {
               <label><span>Período</span><select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="all">Todo o histórico</option></select></label>
               <label><span>Cliente</span><select value={client} onChange={(event) => setClient(event.target.value)}><option value="">Todos</option>{clientOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
               <label><span>Técnico</span><select value={technician} onChange={(event) => setTechnician(event.target.value)}><option value="">Todos</option>{technicianOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <button type="button" onClick={() => { setClient(""); setTechnician(""); }}>Limpar filtros</button>
+              <label><span>Situação financeira</span><select value={resultFilter} onChange={(event) => setResultFilter(event.target.value as ResultFilter)}><option value="all">Todas as OS</option><option value="negative">Margem negativa</option><option value="unallocated">Sem receita atribuída</option><option value="active">Em andamento</option><option value="concluded">Concluídas</option></select></label>
+              <button type="button" onClick={() => { setClient(""); setTechnician(""); setResultFilter("all"); }}>Limpar filtros</button>
             </div>
 
             <div className="service-profit-kpis">
@@ -254,6 +323,8 @@ export function ServiceCallProfitabilityDashboard() {
               <article className={summary.margin < 0 ? "danger" : "good"}><span>Margem operacional</span><strong>{money(summary.margin)}</strong><small>sobre OS com receita atribuída</small></article>
               <article className={summary.marginPercent !== null && summary.marginPercent < 0 ? "danger" : "good"}><span>Margem %</span><strong>{percent(summary.marginPercent)}</strong><small>receita menos custos diretos</small></article>
               <article className={summary.unallocated ? "warning" : ""}><span>Sem receita atribuída</span><strong>{summary.unallocated}</strong><small>não entram na margem consolidada</small></article>
+              <article><span>Ticket médio por OS</span><strong>{money(summary.ticket)}</strong><small>somente OS com receita</small></article>
+              <article className={summary.costRatio !== null && summary.costRatio > 100 ? "danger" : ""}><span>Custo / receita</span><strong>{percent(summary.costRatio)}</strong><small>quanto da receita virou custo direto</small></article>
             </div>
 
             <div className="service-profit-costs">
@@ -272,6 +343,41 @@ export function ServiceCallProfitabilityDashboard() {
               </section>
             ) : null}
             {message ? <p className="service-profit-message">{message}</p> : null}
+
+            <section className="service-profit-card service-profit-trend-card">
+              <header><div><small>EVOLUÇÃO FINANCEIRA</small><h3>Receita x custo x margem</h3></div><strong>últimos {trend.length} meses com movimento</strong></header>
+              {trend.length ? (
+                <div className="service-profit-trend">
+                  {trend.map((item) => (
+                    <div className="service-profit-trend-row" key={item.key}>
+                      <strong>{item.label}</strong>
+                      <div className="service-profit-trend-series">
+                        <div><span>Receita</span><i className="revenue" style={{ width: `${Math.max(2, item.revenue / trendScale * 100)}%` }} /><b>{money(item.revenue)}</b></div>
+                        <div><span>Custo</span><i className="cost" style={{ width: `${Math.max(2, item.cost / trendScale * 100)}%` }} /><b>{money(item.cost)}</b></div>
+                        <div><span>Margem</span><i className={item.margin < 0 ? "margin negative" : "margin"} style={{ width: `${Math.max(2, Math.abs(item.margin) / trendScale * 100)}%` }} /><b className={item.margin < 0 ? "bad" : "good"}>{money(item.margin)}</b></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="empty">Ainda não há dados suficientes para montar a evolução financeira.</p>}
+            </section>
+
+            <section className="service-profit-card service-profit-attention-card">
+              <header><div><small>ATENÇÃO FINANCEIRA</small><h3>OS que precisam de revisão</h3></div><strong>{attentionRows.length} prioridade(s)</strong></header>
+              {attentionRows.length ? (
+                <div className="service-profit-attention-grid">
+                  {attentionRows.map((row) => {
+                    const negative = row.marginAmount !== null && row.marginAmount < 0;
+                    return <article className={negative ? "danger" : "warning"} key={row.id}>
+                      <div><strong>{row.number}</strong><span>{row.companyName}</span></div>
+                      <b>{negative ? "Margem negativa" : "Custo sem receita atribuída"}</b>
+                      <span>{negative ? `${money(row.marginAmount)} · ${percent(row.marginPercent)}` : `${money(row.totalCost)} em custos registrados`}</span>
+                      <button type="button" onClick={() => startEdit(row)}>Revisar OS</button>
+                    </article>;
+                  })}
+                </div>
+              ) : <p className="empty">Nenhuma OS crítica nos filtros atuais.</p>}
+            </section>
 
             <section className="service-profit-card">
               <header><div><small>DETALHAMENTO</small><h3>Resultado por ordem de serviço</h3></div><strong>{rows.length} OS</strong></header>
@@ -292,9 +398,9 @@ export function ServiceCallProfitabilityDashboard() {
             </section>
 
             <section className="service-profit-card service-profit-client-card">
-              <header><div><small>CLIENTES</small><h3>Rentabilidade por cliente</h3></div></header>
+              <header><div><small>CLIENTES</small><h3>Ranking de margem por cliente</h3></div></header>
               <div className="service-profit-client-grid">
-                {byClient.length ? byClient.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{item.calls} OS</span><em>{money(item.revenue)} receita</em><b className={item.margin < 0 ? "bad" : "good"}>{money(item.margin)} · {percent(item.marginPercent)}</b></article>) : <p className="empty">Sem dados.</p>}
+                {byClient.length ? byClient.map((item, index) => <article key={item.name}><small>#{index + 1}</small><strong>{item.name}</strong><span>{item.calls} OS</span><em>{money(item.revenue)} receita</em><b className={item.margin < 0 ? "bad" : "good"}>{money(item.margin)} · {percent(item.marginPercent)}</b></article>) : <p className="empty">Sem dados.</p>}
               </div>
             </section>
 
