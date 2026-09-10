@@ -9,6 +9,8 @@ export const serviceCallSlaPolicies = sqliteTable(
     companyId: integer("company_id").references(() => companies.id),
     priority: text("priority"),
     serviceType: text("service_type"),
+    actionMinutes: integer("action_minutes"),
+    attendanceMinutes: integer("attendance_minutes"),
     targetMinutes: integer("target_minutes").notNull(),
     pausePending: integer("pause_pending", { mode: "boolean" })
       .notNull()
