@@ -218,6 +218,13 @@
       "when": 1789007728557,
       "tag": "0030_silly_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1789045389295,
+      "tag": "0031_zippy_blacklash",
+      "breakpoints": true
     }
   ]
 }
