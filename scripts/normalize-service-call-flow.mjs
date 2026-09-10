@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+// Esta rotina mantém o crm-dashboard.tsx alinhado ao fluxo operacional aprovado.
 const path = new URL("../app/crm-dashboard.tsx", import.meta.url);
 let source = await readFile(path, "utf8");
 const original = source;
