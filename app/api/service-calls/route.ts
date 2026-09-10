@@ -11,7 +11,6 @@ import {
 } from "@/db/schema";
 
 const statuses = new Set([
-  "triagem",
   "aberto",
   "acionado",
   "confirmado",
@@ -23,8 +22,7 @@ const statuses = new Set([
 ]);
 const priorities = new Set(["baixa", "normal", "alta", "critica"]);
 const transitions: Record<string, string[]> = {
-  triagem: ["aberto", "cancelado"],
-  aberto: ["triagem", "acionado", "cancelado"],
+  aberto: ["acionado", "cancelado"],
   acionado: ["aberto", "confirmado", "cancelado"],
   confirmado: ["acionado", "deslocamento", "cancelado"],
   deslocamento: ["confirmado", "atendimento", "pendente"],
@@ -39,11 +37,49 @@ const transitions: Record<string, string[]> = {
   concluido: [],
   cancelado: [],
 };
+const operationalStatuses = new Set([
+  "acionado",
+  "confirmado",
+  "deslocamento",
+  "atendimento",
+  "pendente",
+  "concluido",
+]);
+
+const normalizeLegacyTriage = async () => {
+  const db = getDb();
+  await db
+    .update(serviceCalls)
+    .set({ status: "aberto" })
+    .where(eq(serviceCalls.status, "triagem"));
+  await db
+    .update(serviceCallHistory)
+    .set({ fromStatus: "aberto" })
+    .where(eq(serviceCallHistory.fromStatus, "triagem"));
+  await db
+    .update(serviceCallHistory)
+    .set({ toStatus: "aberto" })
+    .where(eq(serviceCallHistory.toStatus, "triagem"));
+};
+
+const nextServiceCallNumber = async () => {
+  const rows = await getDb()
+    .select({ number: serviceCalls.number })
+    .from(serviceCalls);
+  const highest = rows.reduce((max, row) => {
+    const match = /^TDK-(\d{6})$/.exec(row.number);
+    if (!match) return max;
+    const value = Number(match[1]);
+    return value >= 130000 ? Math.max(max, value) : max;
+  }, 130000);
+  return `TDK-${highest + 1}`;
+};
 
 export async function GET() {
   if (!(await getChatGPTUser()))
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
+    await normalizeLegacyTriage();
     const calls = await getDb()
       .select()
       .from(serviceCalls)
@@ -68,6 +104,7 @@ export async function POST(request: Request) {
   if (!user)
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
+    await normalizeLegacyTriage();
     const p = (await request.json()) as Record<string, unknown>;
     const companyId = Number(p.companyId),
       serviceTakerCompanyId = Number(p.serviceTakerCompanyId),
@@ -114,10 +151,7 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
-    const requestedNumber = String(p.number ?? "").trim();
-    const number = /^TDK-\d{6,10}$/.test(requestedNumber)
-      ? requestedNumber
-      : `TDK-${Date.now().toString().slice(-8)}`;
+    const number = await nextServiceCallNumber();
     const [call] = await getDb()
       .insert(serviceCalls)
       .values({
@@ -138,7 +172,7 @@ export async function POST(request: Request) {
         serviceType: String(p.serviceType ?? "visita"),
         priority,
         scheduledAt: p.scheduledAt ? String(p.scheduledAt) : null,
-        status: "triagem",
+        status: "aberto",
         subject,
         description,
         createdBy: user.displayName,
@@ -147,7 +181,7 @@ export async function POST(request: Request) {
     await getDb().insert(serviceCallHistory).values({
       serviceCallId: call.id,
       fromStatus: null,
-      toStatus: "triagem",
+      toStatus: "aberto",
       changedBy: user.displayName,
     });
     return Response.json({ call }, { status: 201 });
@@ -166,6 +200,7 @@ export async function PATCH(request: Request) {
   if (!user)
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
+    await normalizeLegacyTriage();
     const p = (await request.json()) as Record<string, unknown>,
       id = Number(p.id),
       status = String(p.status);
@@ -291,7 +326,7 @@ export async function PATCH(request: Request) {
     values.companyName = selectedCompany.name;
     values.serviceTaker = selectedTaker?.name ?? null;
     values.location = selectedLocationCompany?.name ?? values.location;
-    if (status !== "triagem" && status !== "cancelado") {
+    if (operationalStatuses.has(status)) {
       const missing = [
         !values.serviceTaker && "tomador do serviço",
         !values.companyName && "cliente",
@@ -304,7 +339,9 @@ export async function PATCH(request: Request) {
       ].filter(Boolean);
       if (missing.length)
         return Response.json(
-          { error: `Para abrir o chamado, informe: ${missing.join(", ")}.` },
+          {
+            error: `Para avançar o chamado, informe: ${missing.join(", ")}.`,
+          },
           { status: 400 },
         );
     }
