@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const serviceFlow: Record<
   string,
@@ -39,7 +39,7 @@ const serviceFlow: Record<
   pendente: {
     label: "Pendente",
     purpose:
-      "Atendimento aguardando cliente, peça, acesso ou outra condição. Retome na etapa operacional adequada.",
+      "Atendimento aguardando cliente, peça, acesso ou outra condição. O motivo e o início da pendência ficam registrados para controle de SLA.",
     allowed: [
       "acionado",
       "confirmado",
@@ -71,6 +71,64 @@ const actionLabels: Record<string, string> = {
   pendente: "Marcar como Pendente",
   concluido: "Concluir atendimento",
 };
+
+const pendingReasonOptions = [
+  { value: "aguardando_cliente", label: "Aguardando cliente" },
+  { value: "aguardando_peca_material", label: "Aguardando peça / material" },
+  { value: "aguardando_acesso", label: "Aguardando acesso" },
+  { value: "aguardando_aprovacao", label: "Aguardando aprovação" },
+  { value: "reagendamento", label: "Reagendamento" },
+  { value: "terceiros", label: "Aguardando terceiros" },
+  { value: "outros", label: "Outros" },
+] as const;
+
+const pendingReasonLabels = Object.fromEntries(
+  pendingReasonOptions.map((item) => [item.value, item.label]),
+) as Record<string, string>;
+
+type ServiceCallSummary = {
+  id: number;
+  number: string;
+  status: string;
+};
+
+type PendingRecord = {
+  id: number;
+  serviceCallId: number;
+  reason: string;
+  notes: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  startedBy: string;
+  endedBy: string | null;
+};
+
+type PendingDialogState = {
+  callNumber: string;
+  editing: boolean;
+} | null;
+
+function displayServiceCallNumber(number: string) {
+  return number.replace(/^OS-(?:\d{4}-)?/, "TDK-").replace(/^TDK-\d{4}-/, "TDK-");
+}
+
+function sheetServiceCallNumber(sheet: HTMLElement) {
+  const title =
+    sheet.querySelector<HTMLElement>("[data-slot='sheet-title']") ??
+    sheet.querySelector<HTMLElement>("h2");
+  const text = title?.textContent?.trim() ?? "";
+  const match = text.match(/TDK-[A-Za-z0-9-]+/);
+  return match?.[0] ?? text;
+}
+
+function formatPendingDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
 
 function replaceExactText(root: ParentNode, from: string, to: string) {
   root.querySelectorAll<HTMLElement>("*").forEach((element) => {
@@ -180,7 +238,74 @@ function applyServiceSheetFlow() {
     });
 }
 
+function applyPendingDetails(
+  calls: ServiceCallSummary[],
+  pendencies: PendingRecord[],
+) {
+  document
+    .querySelectorAll<HTMLElement>(".service-call-sheet")
+    .forEach((sheet) => {
+      const existing = sheet.querySelector<HTMLElement>(".service-pending-info");
+      const statusSelect = sheet.querySelector<HTMLSelectElement>(
+        ".service-call-detail-grid select",
+      );
+      if (statusSelect?.value !== "pendente") {
+        existing?.remove();
+        return;
+      }
+      const visibleNumber = sheetServiceCallNumber(sheet);
+      const call = calls.find(
+        (item) => displayServiceCallNumber(item.number) === visibleNumber,
+      );
+      if (!call) return;
+      const pendency = [...pendencies]
+        .reverse()
+        .find((item) => item.serviceCallId === call.id && !item.endedAt);
+      if (!pendency) return;
+
+      const notes = pendency.notes
+        ? `<p>${pendency.notes.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`
+        : "";
+      const markup = `<div><span>Motivo da pendência</span><strong>${pendingReasonLabels[pendency.reason] ?? pendency.reason}</strong></div><div><span>Desde</span><strong>${formatPendingDate(pendency.startedAt)}</strong></div>${notes}<button type="button" data-pending-edit="${call.id}">Editar pendência</button>`;
+      let info = existing;
+      if (!info) {
+        info = document.createElement("section");
+        info.className = "service-pending-info";
+        const guidance = sheet.querySelector<HTMLElement>(".service-stage-guidance");
+        if (guidance) guidance.insertAdjacentElement("afterend", info);
+      }
+      if (info && info.innerHTML !== markup) info.innerHTML = markup;
+    });
+}
+
 export function ManagerUiPolicies() {
+  const [calls, setCalls] = useState<ServiceCallSummary[]>([]);
+  const [pendencies, setPendencies] = useState<PendingRecord[]>([]);
+  const [pendingDialog, setPendingDialog] = useState<PendingDialogState>(null);
+  const [pendingReason, setPendingReason] = useState("");
+  const [pendingNotes, setPendingNotes] = useState("");
+  const [pendingError, setPendingError] = useState("");
+  const [pendingSaving, setPendingSaving] = useState(false);
+
+  async function refreshPendingData() {
+    try {
+      const response = await fetch("/api/service-calls", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        calls?: ServiceCallSummary[];
+        pendencies?: PendingRecord[];
+      };
+      setCalls(data.calls ?? []);
+      setPendencies(data.pendencies ?? []);
+    } catch {
+      // A interface principal continua funcional mesmo se este complemento falhar.
+    }
+  }
+
+  useEffect(() => {
+    void refreshPendingData();
+  }, []);
+
   useEffect(() => {
     let scheduled = false;
     const applyPolicies = () => {
@@ -247,7 +372,7 @@ export function ManagerUiPolicies() {
             ".service-call-rule-note",
           );
           const ruleText =
-            "Chamados novos começam em Aberto. Para Acionar, complete tomador, local, contato, chamado interno e modalidade, além de definir o técnico. O agendamento passa a ser obrigatório ao Confirmar o atendimento. O departamento é opcional.";
+            "Chamados novos começam em Aberto. Para Acionar, complete tomador, local, contato, chamado interno e modalidade, além de definir o técnico. O agendamento passa a ser obrigatório ao Confirmar o atendimento. Ao marcar Pendente, o motivo será obrigatório e o tempo parado começará a ser registrado. O departamento é opcional.";
           if (rule && rule.textContent !== ruleText) rule.textContent = ruleText;
         });
 
@@ -269,12 +394,53 @@ export function ManagerUiPolicies() {
 
       applyServiceColumnPurposes();
       applyServiceSheetFlow();
+      applyPendingDetails(calls, pendencies);
     };
 
     const schedulePolicies = () => {
       if (scheduled) return;
       scheduled = true;
       window.requestAnimationFrame(applyPolicies);
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      const source = event.target as HTMLElement | null;
+      const pendingButton = source?.closest<HTMLButtonElement>(
+        'button[data-flow-target="pendente"]',
+      );
+      if (pendingButton) {
+        const sheet = pendingButton.closest<HTMLElement>(".service-call-sheet");
+        const callNumber = sheet ? sheetServiceCallNumber(sheet) : "";
+        if (!callNumber) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        setPendingReason("");
+        setPendingNotes("");
+        setPendingError("");
+        setPendingDialog({ callNumber, editing: false });
+        return;
+      }
+
+      const editButton = source?.closest<HTMLButtonElement>(
+        "button[data-pending-edit]",
+      );
+      if (!editButton) return;
+      const serviceCallId = Number(editButton.dataset.pendingEdit);
+      const call = calls.find((item) => item.id === serviceCallId);
+      const pendency = [...pendencies]
+        .reverse()
+        .find((item) => item.serviceCallId === serviceCallId && !item.endedAt);
+      if (!call || !pendency) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingReason(pendency.reason);
+      setPendingNotes(pendency.notes ?? "");
+      setPendingError("");
+      setPendingDialog({
+        callNumber: displayServiceCallNumber(call.number),
+        editing: true,
+      });
     };
 
     applyPolicies();
@@ -285,11 +451,147 @@ export function ManagerUiPolicies() {
       characterData: true,
     });
     document.addEventListener("change", schedulePolicies, true);
+    document.addEventListener("click", handleClick, true);
     return () => {
       observer.disconnect();
       document.removeEventListener("change", schedulePolicies, true);
+      document.removeEventListener("click", handleClick, true);
     };
-  }, []);
+  }, [calls, pendencies]);
 
-  return null;
+  async function savePendency() {
+    if (!pendingDialog || pendingSaving) return;
+    if (!pendingReason) {
+      setPendingError("Selecione o motivo da pendência.");
+      return;
+    }
+    if (pendingReason === "outros" && !pendingNotes.trim()) {
+      setPendingError("Descreva a pendência quando selecionar Outros.");
+      return;
+    }
+
+    setPendingSaving(true);
+    setPendingError("");
+    try {
+      const response = await fetch("/api/service-calls", { cache: "no-store" });
+      const data = (await response.json()) as {
+        calls?: ServiceCallSummary[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível localizar o chamado.");
+      const call = (data.calls ?? []).find(
+        (item) => displayServiceCallNumber(item.number) === pendingDialog.callNumber,
+      );
+      if (!call) throw new Error("Chamado não encontrado para registrar a pendência.");
+
+      const update = await fetch("/api/service-calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: call.id,
+          status: "pendente",
+          pendingReason,
+          pendingNotes: pendingNotes.trim(),
+        }),
+      });
+      const result = (await update.json()) as { error?: string };
+      if (!update.ok)
+        throw new Error(result.error ?? "Não foi possível registrar a pendência.");
+
+      setPendingDialog(null);
+      await refreshPendingData();
+      window.location.reload();
+    } catch (reason) {
+      setPendingError(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível registrar a pendência.",
+      );
+    } finally {
+      setPendingSaving(false);
+    }
+  }
+
+  return pendingDialog ? (
+    <div className="pending-dialog-backdrop" role="presentation">
+      <section
+        className="pending-dialog-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pending-dialog-title"
+      >
+        <header>
+          <div>
+            <span>PENDÊNCIA OPERACIONAL</span>
+            <h2 id="pending-dialog-title">
+              {pendingDialog.editing ? "Editar pendência" : "Marcar como Pendente"}
+            </h2>
+            <p>{pendingDialog.callNumber}</p>
+          </div>
+          <button
+            type="button"
+            className="pending-dialog-close"
+            aria-label="Fechar"
+            onClick={() => setPendingDialog(null)}
+          >
+            ×
+          </button>
+        </header>
+
+        <label className="pending-dialog-field">
+          <span>Motivo da pendência *</span>
+          <select
+            value={pendingReason}
+            onChange={(event) => setPendingReason(event.target.value)}
+          >
+            <option value="">Selecione...</option>
+            {pendingReasonOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="pending-dialog-field">
+          <span>Observação</span>
+          <textarea
+            value={pendingNotes}
+            onChange={(event) => setPendingNotes(event.target.value)}
+            rows={4}
+            placeholder="Detalhe o impedimento, previsão, responsável ou informação útil para a retomada."
+          />
+        </label>
+
+        <p className="pending-dialog-hint">
+          Ao registrar, o TDK Manager grava automaticamente a data e hora de início. Ao retomar o atendimento, o período de pendência será encerrado e permanecerá no histórico para cálculo de SLA.
+        </p>
+
+        {pendingError && <p className="pending-dialog-error">{pendingError}</p>}
+
+        <footer>
+          <button
+            type="button"
+            className="pending-dialog-secondary"
+            onClick={() => setPendingDialog(null)}
+            disabled={pendingSaving}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="pending-dialog-primary"
+            onClick={() => void savePendency()}
+            disabled={pendingSaving}
+          >
+            {pendingSaving
+              ? "Salvando..."
+              : pendingDialog.editing
+                ? "Salvar alterações"
+                : "Registrar pendência"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  ) : null;
 }
