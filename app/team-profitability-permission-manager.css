@@ -1,0 +1,169 @@
+.profitability-permission-card {
+  margin-top: 24px;
+  border: 1px solid #dce5f2;
+  border-radius: 18px;
+  background: #fff;
+  padding: 22px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
+}
+
+.profitability-permission-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.profitability-permission-card > header span {
+  display: block;
+  margin-bottom: 4px;
+  color: #1f6feb;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.profitability-permission-card > header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.profitability-permission-card > header p {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.profitability-permission-card > header button {
+  flex: 0 0 auto;
+  border: 1px solid #cbd8ea;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #2456a6;
+  padding: 9px 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profitability-permission-card > header button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.profitability-permission-note {
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #f1f7ff;
+  color: #395574;
+  padding: 11px 13px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.profitability-permission-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profitability-permission-list > label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e5ebf4;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.profitability-permission-list > label.inactive {
+  background: #f8fafc;
+  opacity: 0.72;
+}
+
+.profitability-permission-person {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.profitability-permission-person strong {
+  color: #172033;
+}
+
+.profitability-permission-person span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profitability-permission-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.profitability-permission-control small {
+  color: #7c8ba1;
+  font-weight: 600;
+}
+
+.profitability-permission-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: #1769e0;
+  cursor: pointer;
+}
+
+.profitability-permission-control input:disabled {
+  cursor: not-allowed;
+}
+
+.profitability-permission-message,
+.profitability-permission-warning,
+.profitability-permission-empty {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.profitability-permission-message {
+  color: #2456a6;
+}
+
+.profitability-permission-warning {
+  color: #a16207;
+}
+
+.profitability-permission-empty {
+  color: #64748b;
+}
+
+@media (max-width: 760px) {
+  .profitability-permission-card {
+    padding: 16px;
+  }
+
+  .profitability-permission-card > header,
+  .profitability-permission-list > label {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profitability-permission-card > header button {
+    width: 100%;
+  }
+
+  .profitability-permission-control {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
