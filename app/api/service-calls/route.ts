@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
@@ -21,6 +21,15 @@ const statuses = new Set([
   "cancelado",
 ]);
 const priorities = new Set(["baixa", "normal", "alta", "critica"]);
+const pendingReasons = new Set([
+  "aguardando_cliente",
+  "aguardando_peca_material",
+  "aguardando_acesso",
+  "aguardando_aprovacao",
+  "reagendamento",
+  "terceiros",
+  "outros",
+]);
 const transitions: Record<string, string[]> = {
   aberto: ["acionado", "cancelado"],
   acionado: ["aberto", "confirmado", "cancelado"],
@@ -53,6 +62,77 @@ const confirmedStatuses = new Set([
   "pendente",
   "concluido",
 ]);
+
+type PendingRecord = {
+  id: number;
+  serviceCallId: number;
+  reason: string;
+  notes: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  startedBy: string;
+  endedBy: string | null;
+};
+
+const ensurePendingTable = async () => {
+  const db = getDb();
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS service_call_pendencies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_call_id INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      notes TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      started_by TEXT NOT NULL,
+      ended_by TEXT,
+      FOREIGN KEY (service_call_id) REFERENCES service_calls(id)
+    )
+  `));
+  await db.run(
+    sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_service_call_pendencies_call
+      ON service_call_pendencies(service_call_id)
+    `),
+  );
+};
+
+const listPendencies = async () => {
+  await ensurePendingTable();
+  return getDb().all<PendingRecord>(sql`
+    SELECT
+      id,
+      service_call_id AS serviceCallId,
+      reason,
+      notes,
+      started_at AS startedAt,
+      ended_at AS endedAt,
+      started_by AS startedBy,
+      ended_by AS endedBy
+    FROM service_call_pendencies
+    ORDER BY started_at ASC
+  `);
+};
+
+const openPendency = async (serviceCallId: number) => {
+  await ensurePendingTable();
+  const rows = await getDb().all<PendingRecord>(sql`
+    SELECT
+      id,
+      service_call_id AS serviceCallId,
+      reason,
+      notes,
+      started_at AS startedAt,
+      ended_at AS endedAt,
+      started_by AS startedBy,
+      ended_by AS endedBy
+    FROM service_call_pendencies
+    WHERE service_call_id = ${serviceCallId} AND ended_at IS NULL
+    ORDER BY started_at DESC
+    LIMIT 1
+  `);
+  return rows[0] ?? null;
+};
 
 const normalizeLegacyTriage = async () => {
   const db = getDb();
@@ -96,7 +176,8 @@ export async function GET() {
       .select()
       .from(serviceCallHistory)
       .orderBy(asc(serviceCallHistory.createdAt));
-    return Response.json({ calls, history });
+    const pendencies = await listPendencies();
+    return Response.json({ calls, history, pendencies });
   } catch {
     return Response.json(
       { error: "Não foi possível carregar os chamados." },
@@ -113,6 +194,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
     await normalizeLegacyTriage();
+    await ensurePendingTable();
     const p = (await request.json()) as Record<string, unknown>;
     const companyId = Number(p.companyId),
       serviceTakerCompanyId = Number(p.serviceTakerCompanyId),
@@ -209,6 +291,7 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
     await normalizeLegacyTriage();
+    await ensurePendingTable();
     const p = (await request.json()) as Record<string, unknown>,
       id = Number(p.id),
       status = String(p.status);
@@ -237,6 +320,33 @@ export async function PATCH(request: Request) {
         },
         { status: 400 },
       );
+
+    const currentPendency = await openPendency(id);
+    const pendingReason = String(p.pendingReason ?? "").trim();
+    const pendingNotes = String(p.pendingNotes ?? "").trim();
+    if (status === "pendente" && current.status !== "pendente") {
+      if (!pendingReasons.has(pendingReason))
+        return Response.json(
+          { error: "Selecione o motivo da pendência antes de continuar." },
+          { status: 400 },
+        );
+      if (pendingReason === "outros" && !pendingNotes)
+        return Response.json(
+          { error: "Descreva a pendência quando o motivo selecionado for Outros." },
+          { status: 400 },
+        );
+    }
+    if (
+      status === "pendente" &&
+      current.status === "pendente" &&
+      pendingReason &&
+      !pendingReasons.has(pendingReason)
+    )
+      return Response.json(
+        { error: "Motivo da pendência inválido." },
+        { status: 400 },
+      );
+
     const values = {
       ...current,
       companyId: Number(p.companyId ?? current.companyId) || null,
@@ -401,20 +511,57 @@ export async function PATCH(request: Request) {
           { status: 400 },
         );
     }
+
     const { id: _id, createdAt: _createdAt, ...changes } = values;
     const [call] = await getDb()
       .update(serviceCalls)
       .set(changes)
       .where(eq(serviceCalls.id, id))
       .returning();
-    if (current.status !== status)
+
+    if (current.status !== status) {
       await getDb().insert(serviceCallHistory).values({
         serviceCallId: id,
         fromStatus: current.status,
         toStatus: status,
         changedBy: user.displayName,
       });
-    return Response.json({ call });
+      if (status === "pendente") {
+        const startedAt = new Date().toISOString();
+        await getDb().run(sql`
+          INSERT INTO service_call_pendencies
+            (service_call_id, reason, notes, started_at, started_by)
+          VALUES
+            (${id}, ${pendingReason}, ${pendingNotes || null}, ${startedAt}, ${user.displayName})
+        `);
+      } else if (current.status === "pendente" && currentPendency) {
+        const endedAt = new Date().toISOString();
+        await getDb().run(sql`
+          UPDATE service_call_pendencies
+          SET ended_at = ${endedAt}, ended_by = ${user.displayName}
+          WHERE id = ${currentPendency.id}
+        `);
+      }
+    } else if (
+      status === "pendente" &&
+      currentPendency &&
+      ("pendingReason" in p || "pendingNotes" in p)
+    ) {
+      const reason = pendingReason || currentPendency.reason;
+      const notes = "pendingNotes" in p ? pendingNotes || null : currentPendency.notes;
+      if (reason === "outros" && !notes)
+        return Response.json(
+          { error: "Descreva a pendência quando o motivo selecionado for Outros." },
+          { status: 400 },
+        );
+      await getDb().run(sql`
+        UPDATE service_call_pendencies
+        SET reason = ${reason}, notes = ${notes}
+        WHERE id = ${currentPendency.id}
+      `);
+    }
+
+    return Response.json({ call, pendency: await openPendency(id) });
   } catch {
     return Response.json(
       { error: "Não foi possível atualizar o chamado." },
