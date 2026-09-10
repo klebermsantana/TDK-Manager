@@ -29,7 +29,8 @@ function cleanCompanyId(value: unknown) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-function cleanTargetMinutes(value: unknown) {
+function cleanMinutes(value: unknown, allowEmpty = false) {
+  if (allowEmpty && (value === null || value === undefined || value === "")) return null;
   const minutes = Math.round(Number(value));
   return Number.isFinite(minutes) && minutes >= 1 && minutes <= 525600
     ? minutes
@@ -44,6 +45,8 @@ async function ensureSlaTable() {
       company_id INTEGER,
       priority TEXT,
       service_type TEXT,
+      action_minutes INTEGER,
+      attendance_minutes INTEGER,
       target_minutes INTEGER NOT NULL,
       pause_pending INTEGER NOT NULL DEFAULT 1,
       active INTEGER NOT NULL DEFAULT 1,
@@ -52,6 +55,16 @@ async function ensureSlaTable() {
       FOREIGN KEY (company_id) REFERENCES companies(id)
     )
   `));
+
+  const columns = await db.all<{ name: string }>(sql.raw("PRAGMA table_info(service_call_sla_policies)"));
+  const names = new Set(columns.map((item) => item.name));
+  if (!names.has("action_minutes")) {
+    await db.run(sql.raw("ALTER TABLE service_call_sla_policies ADD COLUMN action_minutes INTEGER"));
+  }
+  if (!names.has("attendance_minutes")) {
+    await db.run(sql.raw("ALTER TABLE service_call_sla_policies ADD COLUMN attendance_minutes INTEGER"));
+  }
+
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_service_call_sla_company ON service_call_sla_policies(company_id)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_service_call_sla_priority ON service_call_sla_policies(priority)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_service_call_sla_service_type ON service_call_sla_policies(service_type)`));
@@ -67,6 +80,8 @@ async function ensureDefaults() {
       companyId: null,
       priority: item.priority,
       serviceType: null,
+      actionMinutes: null,
+      attendanceMinutes: null,
       targetMinutes: item.targetMinutes,
       pausePending: true,
       active: true,
@@ -118,19 +133,25 @@ export async function POST(request: Request) {
     const companyId = cleanCompanyId(payload.companyId);
     const priority = payload.priority === null || payload.priority === "" ? null : cleanPriority(payload.priority);
     const serviceType = cleanServiceType(payload.serviceType);
-    const targetMinutes = cleanTargetMinutes(payload.targetMinutes);
+    const actionMinutes = cleanMinutes(payload.actionMinutes, true);
+    const attendanceMinutes = cleanMinutes(payload.attendanceMinutes, true);
+    const targetMinutes = cleanMinutes(payload.targetMinutes);
     const pausePending = payload.pausePending !== false;
 
     if (payload.priority && !priority)
       return Response.json({ error: "Prioridade de SLA inválida." }, { status: 400 });
+    if ((payload.actionMinutes !== null && payload.actionMinutes !== undefined && payload.actionMinutes !== "") && !actionMinutes)
+      return Response.json({ error: "Informe um SLA de acionamento válido." }, { status: 400 });
+    if ((payload.attendanceMinutes !== null && payload.attendanceMinutes !== undefined && payload.attendanceMinutes !== "") && !attendanceMinutes)
+      return Response.json({ error: "Informe um SLA de atendimento válido." }, { status: 400 });
     if (!targetMinutes)
-      return Response.json({ error: "Informe um prazo de SLA válido." }, { status: 400 });
+      return Response.json({ error: "Informe um SLA de resolução válido." }, { status: 400 });
     if (await hasDuplicateScope(companyId, priority, serviceType))
       return Response.json({ error: "Já existe uma regra de SLA para esta combinação." }, { status: 409 });
 
     const [created] = await getDb()
       .insert(serviceCallSlaPolicies)
-      .values({ companyId, priority, serviceType, targetMinutes, pausePending, active: true })
+      .values({ companyId, priority, serviceType, actionMinutes, attendanceMinutes, targetMinutes, pausePending, active: true })
       .returning();
     return Response.json({ policy: created }, { status: 201 });
   } catch {
@@ -152,14 +173,20 @@ export async function PATCH(request: Request) {
     const companyId = cleanCompanyId(payload.companyId);
     const priority = payload.priority === null || payload.priority === "" ? null : cleanPriority(payload.priority);
     const serviceType = cleanServiceType(payload.serviceType);
-    const targetMinutes = cleanTargetMinutes(payload.targetMinutes);
+    const actionMinutes = cleanMinutes(payload.actionMinutes, true);
+    const attendanceMinutes = cleanMinutes(payload.attendanceMinutes, true);
+    const targetMinutes = cleanMinutes(payload.targetMinutes);
     const pausePending = payload.pausePending !== false;
     const active = payload.active !== false;
 
     if (payload.priority && !priority)
       return Response.json({ error: "Prioridade de SLA inválida." }, { status: 400 });
+    if ((payload.actionMinutes !== null && payload.actionMinutes !== undefined && payload.actionMinutes !== "") && !actionMinutes)
+      return Response.json({ error: "Informe um SLA de acionamento válido." }, { status: 400 });
+    if ((payload.attendanceMinutes !== null && payload.attendanceMinutes !== undefined && payload.attendanceMinutes !== "") && !attendanceMinutes)
+      return Response.json({ error: "Informe um SLA de atendimento válido." }, { status: 400 });
     if (!targetMinutes)
-      return Response.json({ error: "Informe um prazo de SLA válido." }, { status: 400 });
+      return Response.json({ error: "Informe um SLA de resolução válido." }, { status: 400 });
     if (await hasDuplicateScope(companyId, priority, serviceType, id))
       return Response.json({ error: "Já existe outra regra de SLA para esta combinação." }, { status: 409 });
 
@@ -169,6 +196,8 @@ export async function PATCH(request: Request) {
         companyId,
         priority,
         serviceType,
+        actionMinutes,
+        attendanceMinutes,
         targetMinutes,
         pausePending,
         active,
