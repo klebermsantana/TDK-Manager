@@ -1,0 +1,52 @@
+.service-status-purpose {
+  margin: 0 12px 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.service-stage-guidance {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 12px;
+  background: rgba(239, 246, 255, 0.72);
+}
+
+.service-stage-guidance strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.service-stage-guidance span {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-call-quick-actions button[style*="display: none"] {
+  margin: 0;
+}
+
+.catalog-dialog input:disabled[aria-readonly="true"] {
+  cursor: not-allowed;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .service-status-purpose {
+    margin-inline: 8px;
+  }
+
+  .service-stage-guidance {
+    padding: 12px 14px;
+  }
+}
