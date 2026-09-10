@@ -1,0 +1,372 @@
+.service-sla-trigger.service-sla-trigger-inline {
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  display: inline-flex;
+  min-width: auto;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: 10px;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.service-sla-trigger.service-sla-trigger-inline span {
+  color: #93c5fd;
+  font-size: 10px;
+}
+
+.service-sla-trigger.service-sla-trigger-inline strong {
+  font-size: 12px;
+}
+
+.service-sla-central-status {
+  display: grid;
+  gap: 2px;
+  min-height: 38px;
+  align-content: center;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  background: #eff6ff;
+}
+
+.service-sla-central-status strong {
+  color: #1d4ed8;
+  font-size: 11px;
+}
+
+.service-sla-central-status span {
+  color: #64748b;
+  font-size: 10px;
+}
+
+.service-sla-rules-manager {
+  margin: 0 24px 20px;
+  overflow: hidden;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.service-sla-rules-manager > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fbff;
+}
+
+.service-sla-rules-manager > header small {
+  color: #2563eb;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.service-sla-rules-manager > header h3 {
+  margin: 3px 0 2px;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.service-sla-rules-manager > header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.service-sla-rules-manager > header button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.service-sla-rule-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(120px, 0.75fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+}
+
+.service-sla-rule-form > label {
+  display: grid;
+  gap: 6px;
+}
+
+.service-sla-rule-form > label > span {
+  color: #475569;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-sla-rule-form select,
+.service-sla-rule-form input[type="number"] {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  outline: none;
+}
+
+.service-sla-rule-form select {
+  padding: 0 9px;
+}
+
+.service-sla-rule-form input[type="number"] {
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+.service-sla-rule-form select:focus,
+.service-sla-rule-form input[type="number"]:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.09);
+}
+
+.service-sla-hours-input {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.service-sla-hours-input em {
+  color: #64748b;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.service-sla-rule-pause {
+  display: flex !important;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px !important;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.service-sla-rule-pause span {
+  color: #334155 !important;
+  font-size: 10px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.service-sla-save-rule {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #2563eb;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.service-sla-save-rule:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.service-sla-rule-message {
+  margin: -4px 16px 14px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+}
+
+.service-sla-rules-table {
+  display: grid;
+  border-top: 1px solid #eef2f7;
+}
+
+.service-sla-rules-table .head,
+.service-sla-rules-table .row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) 90px minmax(140px, 0.9fr) 150px;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.service-sla-rules-table .head {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-sla-rules-table .row {
+  border-top: 1px solid #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+}
+
+.service-sla-rules-table .row strong {
+  color: #0f172a;
+}
+
+.service-sla-rules-table .row > div {
+  display: flex;
+  gap: 6px;
+}
+
+.service-sla-rules-table .row button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.service-sla-rules-table .row button.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.service-sla-rules-table .empty {
+  margin: 0;
+  padding: 16px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.service-sla-breach-card {
+  grid-column: 1 / -1;
+}
+
+.service-sla-breach-table {
+  display: grid;
+  overflow-x: auto;
+}
+
+.service-sla-breach-table .head,
+.service-sla-breach-table .row {
+  display: grid;
+  grid-template-columns: 110px minmax(170px, 1.2fr) minmax(160px, 1fr) minmax(150px, 0.9fr) minmax(190px, 1.2fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 820px;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.service-sla-breach-table .head {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-sla-breach-table .row {
+  border-top: 1px solid #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+}
+
+.service-sla-breach-table .row strong {
+  color: #0f172a;
+}
+
+.service-sla-breach-table .bad {
+  color: #b91c1c;
+  font-weight: 900;
+}
+
+.service-sla-breach-table .empty {
+  margin: 0;
+  padding: 18px 16px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+@media (max-width: 1180px) {
+  .service-sla-rule-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .service-sla-save-rule {
+    width: 100%;
+  }
+}
+
+@media (max-width: 820px) {
+  .service-sla-trigger.service-sla-trigger-inline {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  .service-sla-central-status {
+    margin-left: 0;
+  }
+
+  .service-sla-rules-manager {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+
+  .service-sla-rule-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .service-sla-rules-table {
+    overflow-x: auto;
+  }
+
+  .service-sla-rules-table .head,
+  .service-sla-rules-table .row {
+    min-width: 720px;
+  }
+}
+
+@media (max-width: 560px) {
+  .service-sla-trigger.service-sla-trigger-inline span {
+    display: none;
+  }
+
+  .service-sla-trigger.service-sla-trigger-inline strong {
+    font-size: 11px;
+  }
+
+  .service-sla-rule-form {
+    grid-template-columns: 1fr;
+  }
+
+  .service-sla-rules-manager > header {
+    flex-direction: column;
+  }
+}
