@@ -43,12 +43,12 @@ jobs:
       - name: Persist normalized flow and schema
         shell: bash
         run: |
-          if git diff --quiet -- app db drizzle; then
+          if [ -z "$(git status --porcelain -- app db drizzle)" ]; then
             echo "Source, schema and migrations already normalized."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A app db drizzle
-          git commit -m "refactor: consolida fluxo de chamados e pendencias"
+          git commit -m "refactor: consolida fluxo, schema e migracoes"
           git push origin HEAD:main
