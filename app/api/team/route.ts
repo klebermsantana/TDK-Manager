@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { users } from "@/db/schema";
 
 const validRoles = new Set(["admin", "manager", "seller", "finance", "viewer"]);
-const validPermissions = new Set(["crm", "proposals", "sales", "billing", "receivables", "payables", "reports", "settings"]);
+const validPermissions = new Set(["crm", "proposals", "sales", "billing", "receivables", "payables", "reports", "service_profitability", "settings"]);
 const primaryAdministratorEmail = "kleber.santana@tecnodesk.com.br";
 const normalizePermissions = (value: unknown) => {
   const list = Array.isArray(value) ? value.map(String) : [];
