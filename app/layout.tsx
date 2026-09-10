@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./navigation-kanban-fixes.css";
 import "./equipment-scanner.css";
+import { ManagerUiPolicies } from "./manager-ui-policies";
 
 export const metadata: Metadata = {
   title: "TDK Manager | Gestão comercial",
@@ -19,7 +20,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <ManagerUiPolicies />
+        {children}
+      </body>
     </html>
   );
 }
