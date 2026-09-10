@@ -70,8 +70,7 @@ function sheetServiceCallNumber(sheet: HTMLElement) {
     sheet.querySelector<HTMLElement>("[data-slot='sheet-title']") ??
     sheet.querySelector<HTMLElement>("h2");
   const text = title?.textContent?.trim() ?? "";
-  const match = text.match(/TDK-[A-Za-z0-9-]+/);
-  return match?.[0] ?? text;
+  return text.match(/TDK-[A-Za-z0-9-]+/)?.[0] ?? text;
 }
 
 function escapeHtml(value: string) {
@@ -85,8 +84,8 @@ function escapeHtml(value: string) {
 
 function toTime(value: string | null | undefined) {
   if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.getTime();
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? null : time;
 }
 
 function formatDateTime(value: string) {
@@ -134,21 +133,16 @@ function timelineMarkup(
   const events = history
     .filter((item) => item.serviceCallId === call.id)
     .slice()
-    .sort((a, b) => {
-      const left = toTime(a.createdAt) ?? 0;
-      const right = toTime(b.createdAt) ?? 0;
-      return left - right;
-    });
-
+    .sort((a, b) => (toTime(a.createdAt) ?? 0) - (toTime(b.createdAt) ?? 0));
   const createdAt = toTime(call.createdAt) ?? now;
   const firstEventAt = events.length ? toTime(events[0].createdAt) : null;
-  const normalizedEvents = [...events];
+
   if (
-    !normalizedEvents.length ||
-    normalizedEvents[0].toStatus !== "aberto" ||
+    !events.length ||
+    events[0].toStatus !== "aberto" ||
     (firstEventAt !== null && firstEventAt - createdAt > 60000)
   ) {
-    normalizedEvents.unshift({
+    events.unshift({
       id: -call.id,
       serviceCallId: call.id,
       fromStatus: null,
@@ -158,7 +152,7 @@ function timelineMarkup(
     });
   }
 
-  const lastEvent = normalizedEvents.at(-1);
+  const lastEvent = events[events.length - 1];
   const lastEventAt = lastEvent ? toTime(lastEvent.createdAt) : null;
   const operationalEnd =
     terminalStatuses.has(call.status) && lastEventAt !== null ? lastEventAt : now;
@@ -169,15 +163,16 @@ function timelineMarkup(
     .reverse()
     .find((item) => item.serviceCallId === call.id && !item.endedAt);
 
-  const rows = normalizedEvents
+  const rows = events
     .map((event, index) => {
       const start = toTime(event.createdAt) ?? createdAt;
-      const next = normalizedEvents[index + 1];
+      const next = events[index + 1];
       const nextTime = next ? toTime(next.createdAt) : null;
-      const isLast = index === normalizedEvents.length - 1;
+      const isLast = index === events.length - 1;
       const isTerminal = isLast && terminalStatuses.has(event.toStatus);
       const end = nextTime ?? (isTerminal ? start : operationalEnd);
       const duration = isTerminal ? "Status final" : formatDuration(end - start);
+      const current = isLast && !terminalStatuses.has(call.status);
       const pendency =
         event.toStatus === "pendente"
           ? pendencies.find(
@@ -195,7 +190,6 @@ function timelineMarkup(
               : ""
           }</div>`
         : "";
-      const current = isLast && !terminalStatuses.has(call.status);
 
       return `<article class="service-timeline-event status-${escapeHtml(
         event.toStatus,
@@ -249,7 +243,7 @@ function timelineMarkup(
       <div class="pending"><span>Em pendência</span><strong>${escapeHtml(
         formatDuration(pendingTotal),
       )}</strong></div>
-      <div><span>Etapas registradas</span><strong>${normalizedEvents.length}</strong></div>
+      <div><span>Etapas registradas</span><strong>${events.length}</strong></div>
     </div>
     <div class="service-timeline-events">${rows}</div>
   </section>`;
@@ -278,7 +272,7 @@ export function ServiceCallTimelineEnhancer() {
           pendencies: payload.pendencies ?? [],
         });
       } catch {
-        // O detalhe da OS continua utilizável mesmo se a linha do tempo não carregar.
+        // A OS continua utilizável mesmo se o complemento de timeline falhar.
       }
     }
 
@@ -286,7 +280,6 @@ export function ServiceCallTimelineEnhancer() {
       window.clearTimeout(refreshTimeout);
       refreshTimeout = window.setTimeout(() => void refresh(), 180);
     };
-
     const observer = new MutationObserver((mutations) => {
       if (
         mutations.some((mutation) =>
@@ -294,7 +287,7 @@ export function ServiceCallTimelineEnhancer() {
             (node) =>
               node instanceof HTMLElement &&
               (node.matches?.(".service-call-sheet") ||
-                node.querySelector?.(".service-call-sheet")),
+                Boolean(node.querySelector?.(".service-call-sheet"))),
           ),
         )
       )
@@ -302,19 +295,21 @@ export function ServiceCallTimelineEnhancer() {
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("tdk:service-call-timeline-refresh", scheduleRefresh);
     void refresh();
     return () => {
       active = false;
       observer.disconnect();
+      window.removeEventListener(
+        "tdk:service-call-timeline-refresh",
+        scheduleRefresh,
+      );
       window.clearTimeout(refreshTimeout);
     };
   }, []);
 
   useEffect(() => {
-    let frame = 0;
-
     const render = () => {
-      frame = 0;
       const now = Date.now();
       document
         .querySelectorAll<HTMLElement>(".service-call-sheet")
@@ -333,32 +328,19 @@ export function ServiceCallTimelineEnhancer() {
 
           const markup = timelineMarkup(call, data.history, data.pendencies, now);
           if (existing) {
-            if (existing.outerHTML !== markup) existing.outerHTML = markup;
+            existing.outerHTML = markup;
             return;
           }
-
           const historySection = sheet.querySelector<HTMLElement>(
             ".opportunity-history",
           );
-          if (!historySection) return;
-          historySection.insertAdjacentHTML("beforebegin", markup);
+          historySection?.insertAdjacentHTML("beforebegin", markup);
         });
     };
 
-    const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(render);
-    };
-
-    schedule();
-    const observer = new MutationObserver(schedule);
-    observer.observe(document.body, { childList: true, subtree: true });
-    const timer = window.setInterval(schedule, 60000);
-    return () => {
-      observer.disconnect();
-      window.clearInterval(timer);
-      if (frame) window.cancelAnimationFrame(frame);
-    };
+    render();
+    const timer = window.setInterval(render, 60000);
+    return () => window.clearInterval(timer);
   }, [data]);
 
   return null;
