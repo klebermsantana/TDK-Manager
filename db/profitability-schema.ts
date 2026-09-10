@@ -9,6 +9,8 @@ export const serviceCallFinancials = sqliteTable("service_call_financials", {
     .unique()
     .references(() => serviceCalls.id),
   revenueAmount: real("revenue_amount"),
+  plannedRevenueAmount: real("planned_revenue_amount"),
+  plannedCostAmount: real("planned_cost_amount"),
   notes: text("notes"),
   updatedBy: text("updated_by").notNull(),
   createdAt: text("created_at")
