@@ -18,6 +18,9 @@ if [[ ! -x "${vinext}" ]]; then
   exit 69
 fi
 
+echo "Applying service-call flow normalization..."
+node "${script_dir}/normalize-service-call-flow.mjs"
+
 echo "Running bounded vinext build..."
 timeout \
   --signal=TERM \
