@@ -43,7 +43,7 @@ jobs:
       - name: Persist normalized flow and schema
         shell: bash
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- app db drizzle; then
             echo "Source, schema and migrations already normalized."
             exit 0
           fi
