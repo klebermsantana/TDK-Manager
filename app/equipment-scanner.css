@@ -1,8 +1,71 @@
-.scan-code-field { display: grid; gap: 8px; }
-.scan-code-field > div { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.scan-code-field > div input { grid-column: 1 / -1; width: 100%; min-height: 40px; }
-.scan-code-field button { min-height: 40px; padding: 0 11px; border: 1px solid #bdd5ed; border-radius: 8px; background: #edf6ff; color: #1268c7; font-size: 11px; font-weight: 800; cursor: pointer; }
-.scan-code-field button:hover { border-color: #68a8e8; background: #e1f0ff; }
-.scan-code-field small { color: #60788f; font-size: 10px; }
-.scan-code-file { display: none !important; }
-@media (max-width: 700px) { .scan-code-field button { min-height: 42px; } }
+.scan-code-field {
+  display: grid;
+  gap: 8px;
+}
+
+/*
+ * Serial e patrimônio ocupam a largura total do formulário.
+ * Assim o valor digitado/escaneado permanece legível e os atalhos de
+ * Câmera/QR e NFC ficam acessíveis sem reduzir o campo principal.
+ */
+.catalog-dialog .form-split > .scan-code-field {
+  grid-column: 1 / -1;
+}
+
+.scan-code-field > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.scan-code-field > div input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.scan-code-field button {
+  min-width: 92px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid #bdd5ed;
+  border-radius: 8px;
+  background: #edf6ff;
+  color: #1268c7;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.scan-code-field button:hover {
+  border-color: #68a8e8;
+  background: #e1f0ff;
+}
+
+.scan-code-field small {
+  color: #60788f;
+  font-size: 10px;
+}
+
+.scan-code-file {
+  display: none !important;
+}
+
+@media (max-width: 700px) {
+  .scan-code-field > div {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scan-code-field > div input {
+    grid-column: 1 / -1;
+    min-height: 44px;
+  }
+
+  .scan-code-field button {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+  }
+}
