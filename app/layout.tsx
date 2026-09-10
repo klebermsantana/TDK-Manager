@@ -6,10 +6,12 @@ import "./service-call-flow.css";
 import "./service-call-timeline.css";
 import "./service-call-sla-dashboard.css";
 import "./service-call-sla-policies.css";
+import "./service-call-sla-config-shortcut.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
 import { ServiceCallTimelineEnhancer } from "./service-call-timeline-enhancer";
 import { ServiceCallSlaDashboardV2 } from "./service-call-sla-dashboard-v2";
+import { ServiceCallSlaConfigShortcut } from "./service-call-sla-config-shortcut";
 
 export const metadata: Metadata = {
   title: "TDK Manager | Gestão comercial",
@@ -32,6 +34,7 @@ export default function RootLayout({
         <ServiceCallKanbanEnhancer />
         <ServiceCallTimelineEnhancer />
         <ServiceCallSlaDashboardV2 />
+        <ServiceCallSlaConfigShortcut />
         {children}
       </body>
     </html>
