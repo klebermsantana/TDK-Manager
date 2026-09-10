@@ -47,11 +47,18 @@ function toMs(value: string | null | undefined) {
 }
 
 function conclusionAt(callId: number, history: HistoryItem[]) {
-  const event = history
-    .filter((item) => item.serviceCallId === callId && item.toStatus === "concluido")
+  const item = history
+    .filter((event) => event.serviceCallId === callId && event.toStatus === "concluido")
     .sort((a, b) => (toMs(a.createdAt) ?? 0) - (toMs(b.createdAt) ?? 0))
     .at(-1);
-  return toMs(event?.createdAt);
+  return toMs(item?.createdAt);
+}
+
+function attendanceAt(callId: number, history: HistoryItem[]) {
+  const item = history
+    .filter((event) => event.serviceCallId === callId && event.toStatus === "atendimento")
+    .sort((a, b) => (toMs(a.createdAt) ?? 0) - (toMs(b.createdAt) ?? 0))[0];
+  return toMs(item?.createdAt);
 }
 
 function formatDuration(ms: number | null) {
@@ -83,9 +90,8 @@ function buildTrend(calls: ServiceCall[], history: HistoryItem[], period: string
       date.setDate(1);
       date.setHours(0, 0, 0, 0);
       date.setMonth(date.getMonth() - (11 - index));
-      const ms = date.getTime();
       return {
-        key: monthKey(ms),
+        key: monthKey(date.getTime()),
         label: new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(date).replace(".", ""),
         opened: 0,
         closed: 0,
@@ -94,9 +100,15 @@ function buildTrend(calls: ServiceCall[], history: HistoryItem[], period: string
     const map = new Map(rows.map((row) => [row.key, row]));
     calls.forEach((call) => {
       const created = toMs(call.createdAt);
-      if (created !== null) map.get(monthKey(created))!.opened += map.has(monthKey(created)) ? 1 : 0;
+      if (created !== null) {
+        const row = map.get(monthKey(created));
+        if (row) row.opened += 1;
+      }
       const concluded = conclusionAt(call.id, history);
-      if (concluded !== null && map.has(monthKey(concluded))) map.get(monthKey(concluded))!.closed += 1;
+      if (concluded !== null) {
+        const row = map.get(monthKey(concluded));
+        if (row) row.closed += 1;
+      }
     });
     return rows;
   }
@@ -106,9 +118,8 @@ function buildTrend(calls: ServiceCall[], history: HistoryItem[], period: string
     const date = new Date(now);
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() - (days - 1 - index));
-    const ms = date.getTime();
     return {
-      key: dayKey(ms),
+      key: dayKey(date.getTime()),
       label: new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(date),
       opened: 0,
       closed: 0,
@@ -129,7 +140,6 @@ function buildTrend(calls: ServiceCall[], history: HistoryItem[], period: string
   });
 
   if (period !== "90") return rows;
-
   const weekly: TrendPoint[] = [];
   for (let start = 0; start < rows.length; start += 7) {
     const slice = rows.slice(start, start + 7);
@@ -162,11 +172,8 @@ export function ServiceCallSlaOperationsSection() {
 
   useEffect(() => {
     let currentSelect: HTMLSelectElement | null = null;
-
     const sync = () => {
-      const grid = document.querySelector<HTMLElement>(".service-sla-dashboard .service-sla-grid");
-      setTarget(grid);
-
+      setTarget(document.querySelector<HTMLElement>(".service-sla-dashboard .service-sla-grid"));
       const select = document.querySelector<HTMLSelectElement>(".service-sla-dashboard .service-sla-controls select");
       if (select !== currentSelect) {
         currentSelect?.removeEventListener("change", sync);
@@ -175,11 +182,9 @@ export function ServiceCallSlaOperationsSection() {
       }
       if (select?.value) setPeriod(select.value);
     };
-
     sync();
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
-
     return () => {
       observer.disconnect();
       currentSelect?.removeEventListener("change", sync);
@@ -198,7 +203,7 @@ export function ServiceCallSlaOperationsSection() {
         setData({ calls: payload.calls ?? [], history: payload.history ?? [], pendencies: payload.pendencies ?? [] });
         setNow(Date.now());
       } catch {
-        // O painel de SLA principal continua funcionando mesmo sem este complemento.
+        // O painel principal permanece utilizável se este complemento não carregar.
       }
     };
     void refresh();
@@ -221,24 +226,23 @@ export function ServiceCallSlaOperationsSection() {
       const concluded = conclusionAt(call.id, data.history);
       return concluded !== null && concluded >= cutoff;
     });
-    const cycleValues = completed
+    const cycles = completed
       .map((call) => {
         const created = toMs(call.createdAt);
         const concluded = conclusionAt(call.id, data.history);
         return created !== null && concluded !== null ? Math.max(0, concluded - created) : null;
       })
       .filter((value): value is number => value !== null);
-    const openPendencies = data.pendencies.filter((item) => !item.endedAt);
     const overdue = activeCalls.filter((call) => {
       const scheduled = toMs(call.scheduledAt);
-      return scheduled !== null && scheduled < now && conclusionAt(call.id, data.history) === null;
+      return scheduled !== null && scheduled < now && attendanceAt(call.id, data.history) === null;
     });
     return {
       backlog: activeCalls.length,
-      pending: openPendencies.length,
+      pending: data.pendencies.filter((item) => !item.endedAt).length,
       overdue: overdue.length,
       completed: completed.length,
-      avgCycle: cycleValues.length ? cycleValues.reduce((sum, value) => sum + value, 0) / cycleValues.length : null,
+      avgCycle: cycles.length ? cycles.reduce((sum, value) => sum + value, 0) / cycles.length : null,
     };
   }, [activeCalls, data.calls, data.history, data.pendencies, now, period]);
 
@@ -276,18 +280,14 @@ export function ServiceCallSlaOperationsSection() {
   return createPortal(
     <section className="service-sla-ops-section">
       <header className="service-sla-ops-heading">
-        <div>
-          <small>VISÃO OPERACIONAL</small>
-          <h3>Fluxo e capacidade da operação</h3>
-          <p>Indicadores operacionais integrados ao mesmo painel gerencial de SLA.</p>
-        </div>
+        <div><small>VISÃO OPERACIONAL</small><h3>Fluxo e capacidade da operação</h3><p>Indicadores operacionais integrados ao mesmo painel gerencial de SLA.</p></div>
         <span>Sincronizado com o período selecionado acima</span>
       </header>
 
       <div className="service-sla-ops-kpis">
         <article><span>Backlog ativo</span><strong>{metrics.backlog}</strong><small>chamados ainda em andamento</small></article>
         <article className={metrics.pending ? "warning" : ""}><span>Pendências abertas</span><strong>{metrics.pending}</strong><small>aguardando desbloqueio</small></article>
-        <article className={metrics.overdue ? "danger" : ""}><span>Agendamentos vencidos</span><strong>{metrics.overdue}</strong><small>atendimentos com horário ultrapassado</small></article>
+        <article className={metrics.overdue ? "danger" : ""}><span>Agendamentos vencidos</span><strong>{metrics.overdue}</strong><small>sem início de atendimento</small></article>
         <article><span>Concluídos no período</span><strong>{metrics.completed}</strong><small>de acordo com o filtro acima</small></article>
         <article><span>Ciclo médio</span><strong>{formatDuration(metrics.avgCycle)}</strong><small>da abertura até a conclusão</small></article>
       </div>
