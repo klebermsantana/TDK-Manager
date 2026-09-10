@@ -13,9 +13,9 @@ function disableAutomaticCodeField(
   dialog: HTMLElement,
   placeholder: string,
 ) {
-  const codeLabel = Array.from(dialog.querySelectorAll<HTMLLabelElement>("label")).find(
-    (label) => label.textContent?.trim() === "Código",
-  );
+  const codeLabel = Array.from(
+    dialog.querySelectorAll<HTMLLabelElement>("label"),
+  ).find((label) => label.textContent?.trim() === "Código");
   const input = codeLabel?.parentElement?.querySelector<HTMLInputElement>("input");
   if (!input) return;
   input.disabled = true;
@@ -40,49 +40,60 @@ export function ManagerUiPolicies() {
           option.disabled = true;
         });
 
-      document.querySelectorAll<HTMLElement>(".catalog-dialog").forEach((dialog) => {
-        const kicker = dialog.querySelector<HTMLElement>(".dialog-kicker")?.textContent?.trim();
-        if (kicker === "CATÁLOGO COMERCIAL")
-          disableAutomaticCodeField(
+      document
+        .querySelectorAll<HTMLElement>(".catalog-dialog")
+        .forEach((dialog) => {
+          const kicker = dialog
+            .querySelector<HTMLElement>(".dialog-kicker")
+            ?.textContent?.trim();
+          if (kicker === "CATÁLOGO COMERCIAL")
+            disableAutomaticCodeField(
+              dialog,
+              "Gerado automaticamente · PS-0001, PS-0002...",
+            );
+          if (kicker === "EQUIPAMENTOS E PEÇAS")
+            disableAutomaticCodeField(
+              dialog,
+              "Gerado automaticamente · EQ-0001, EQ-0002...",
+            );
+        });
+
+      document
+        .querySelectorAll<HTMLElement>(".service-call-dialog")
+        .forEach((dialog) => {
+          const title = Array.from(
+            dialog.querySelectorAll<HTMLElement>("*"),
+          ).find(
+            (element) =>
+              element.children.length === 0 &&
+              element.textContent?.trim() === "Novo chamado",
+          );
+          if (title) {
+            const number = dialog.querySelector<HTMLElement>(
+              ".service-call-header-number",
+            );
+            if (number)
+              number.textContent = "Número gerado automaticamente ao salvar";
+          }
+
+          replaceExactText(
             dialog,
-            "Gerado automaticamente · PS-0001, PS-0002...",
+            "Registre inicialmente a ocorrência para triagem.",
+            "Registre a ocorrência. O chamado será criado diretamente como Aberto, mesmo com informações operacionais pendentes.",
           );
-        if (kicker === "EQUIPAMENTOS E PEÇAS")
-          disableAutomaticCodeField(
+          replaceExactText(
             dialog,
-            "Gerado automaticamente · EQ-0001, EQ-0002...",
+            "Cadastrar em triagem",
+            "Cadastrar chamado",
           );
-      });
 
-      document.querySelectorAll<HTMLElement>(".service-call-dialog").forEach((dialog) => {
-        const title = Array.from(dialog.querySelectorAll<HTMLElement>("*")).find(
-          (element) =>
-            element.children.length === 0 &&
-            element.textContent?.trim() === "Novo chamado",
-        );
-        if (title) {
-          const number = dialog.querySelector<HTMLElement>(
-            ".service-call-header-number",
+          const rule = dialog.querySelector<HTMLElement>(
+            ".service-call-rule-note",
           );
-          if (number) number.textContent = "Número gerado automaticamente ao salvar";
-        }
-
-        replaceExactText(
-          dialog,
-          "Registre inicialmente a ocorrência para triagem.",
-          "Registre a ocorrência. O chamado será criado diretamente como Aberto, mesmo com informações operacionais pendentes.",
-        );
-        replaceExactText(
-          dialog,
-          "Cadastrar em triagem",
-          "Cadastrar chamado",
-        );
-
-        const rule = dialog.querySelector<HTMLElement>(".service-call-rule-note");
-        if (rule)
-          rule.textContent =
-            "Chamados novos começam em Aberto. Complete tomador, local, contato, chamado interno, modalidade e agendamento antes de avançar o atendimento. O departamento é opcional.";
-      });
+          if (rule)
+            rule.textContent =
+              "Chamados novos começam em Aberto. Complete tomador, local, contato, chamado interno, modalidade e agendamento antes de avançar o atendimento. O departamento é opcional.";
+        });
 
       replaceExactText(
         document,
@@ -91,10 +102,13 @@ export function ManagerUiPolicies() {
       );
 
       document
-        .querySelectorAll<HTMLElement>(".service-call-sheet strong, .service-call-card b")
+        .querySelectorAll<HTMLElement>(
+          ".service-call-sheet strong, .service-call-card b",
+        )
         .forEach((element) => {
-          if (element.textContent?.includes("Triagem"))
-            element.textContent = element.textContent.replaceAll("Triagem", "Aberto");
+          const text = element.textContent;
+          if (text?.includes("Triagem"))
+            element.textContent = text.replaceAll("Triagem", "Aberto");
         });
     };
 
