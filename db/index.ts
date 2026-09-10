@@ -2,8 +2,15 @@ import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as coreSchema from "./schema";
 import * as slaSchema from "./sla-schema";
+import * as profitabilitySchema from "./profitability-schema";
+import * as goalScopeSchema from "./goal-scope-schema";
 
-const schema = { ...coreSchema, ...slaSchema };
+const schema = {
+  ...coreSchema,
+  ...slaSchema,
+  ...profitabilitySchema,
+  ...goalScopeSchema,
+};
 
 export function getDb() {
   if (!env.DB) {
