@@ -258,6 +258,130 @@ select option[value="triagem"] {
   color: #fff;
 }
 
+.service-column-operational-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -5px 12px 12px;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.service-column-operational-summary strong {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 10px;
+}
+
+.service-column.status-pendente .service-column-operational-summary {
+  color: #92400e;
+}
+
+.service-column.status-pendente .service-column-operational-summary strong {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.service-card-pendency {
+  display: grid;
+  gap: 3px;
+  margin: 10px 0 2px;
+  padding: 9px 10px;
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  border-radius: 9px;
+  background: #fffbeb;
+}
+
+.service-card-pendency > span {
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.service-card-pendency > span strong {
+  color: #78350f;
+  font-size: inherit;
+}
+
+.service-card-pendency > small {
+  overflow: hidden;
+  color: #b45309;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-call-card.service-card-terminal {
+  cursor: default;
+}
+
+.service-column.service-drop-allowed {
+  outline: 2px dashed rgba(22, 163, 74, 0.45);
+  outline-offset: -5px;
+  background: rgba(240, 253, 244, 0.7);
+}
+
+.service-column.service-drop-allowed::after {
+  content: "Soltar aqui";
+  position: sticky;
+  bottom: 8px;
+  display: block;
+  width: max-content;
+  margin: 8px auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.service-column.service-drop-blocked {
+  opacity: 0.58;
+  filter: grayscale(0.25);
+}
+
+.service-column.service-drop-current {
+  outline: 1px solid rgba(100, 116, 139, 0.2);
+  outline-offset: -5px;
+}
+
+.service-kanban-feedback {
+  position: fixed;
+  z-index: 12000;
+  right: 20px;
+  bottom: 20px;
+  max-width: min(390px, calc(100vw - 40px));
+  transform: translateY(10px);
+  padding: 11px 14px;
+  border: 1px solid rgba(185, 28, 28, 0.15);
+  border-radius: 11px;
+  background: #fff1f2;
+  box-shadow: 0 12px 35px rgba(15, 23, 42, 0.16);
+  color: #9f1239;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.service-kanban-feedback.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.service-call-sheet .service-call-detail-grid select option:disabled {
+  color: #94a3b8;
+}
+
 @media (max-width: 768px) {
   .service-status-purpose {
     margin-inline: 8px;
@@ -287,5 +411,15 @@ select option[value="triagem"] {
 
   .pending-dialog-card > footer button {
     width: 100%;
+  }
+
+  .service-column-operational-summary {
+    margin-inline: 8px;
+  }
+
+  .service-kanban-feedback {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
   }
 }
