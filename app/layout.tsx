@@ -10,6 +10,7 @@ import "./service-call-sla-stage.css";
 import "./service-call-sla-config-shortcut.css";
 import "./service-call-sla-operations-section.css";
 import "./service-call-profitability-dashboard.css";
+import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
 import { ServiceCallTimelineEnhancer } from "./service-call-timeline-enhancer";
@@ -18,6 +19,7 @@ import { ServiceCallSlaAlertEnhancer } from "./service-call-sla-alert-enhancer";
 import { ServiceCallSlaConfigShortcut } from "./service-call-sla-config-shortcut";
 import { ServiceCallSlaOperationsSection } from "./service-call-sla-operations-section";
 import { ServiceCallProfitabilityDashboard } from "./service-call-profitability-dashboard";
+import { TeamProfitabilityPermissionManager } from "./team-profitability-permission-manager";
 
 export const metadata: Metadata = {
   title: "TDK Manager | Gestão comercial",
@@ -44,6 +46,7 @@ export default function RootLayout({
         <ServiceCallSlaConfigShortcut />
         <ServiceCallSlaOperationsSection />
         <ServiceCallProfitabilityDashboard />
+        <TeamProfitabilityPermissionManager />
         {children}
       </body>
     </html>
