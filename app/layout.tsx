@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./navigation-kanban-fixes.css";
 import "./equipment-scanner.css";
+import "./service-call-flow.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 
 export const metadata: Metadata = {
