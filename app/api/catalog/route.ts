@@ -7,7 +7,6 @@ import { catalogItems } from "@/db/schema";
 const categories = new Set(["material", "servico"]);
 const values = (payload: Record<string, unknown>) => ({
   category: String(payload.category ?? ""),
-  code: String(payload.code ?? "").trim() || null,
   description: String(payload.description ?? "").trim(),
   unit: String(payload.unit ?? "un").trim() || "un",
   cost: Number(payload.cost ?? 0),
@@ -22,10 +21,42 @@ const valid = (item: ReturnType<typeof values>) =>
     (number) => Number.isFinite(number) && number >= 0,
   );
 
+const nextCatalogCode = async () => {
+  const rows = await getDb()
+    .select({ code: catalogItems.code })
+    .from(catalogItems);
+  const highest = rows.reduce((max, row) => {
+    const match = /^PS-(\d+)$/.exec(row.code ?? "");
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `PS-${String(highest + 1).padStart(4, "0")}`;
+};
+
+const ensureCatalogCodes = async () => {
+  const db = getDb();
+  const rows = await db
+    .select({ id: catalogItems.id, code: catalogItems.code })
+    .from(catalogItems)
+    .orderBy(asc(catalogItems.id));
+  let highest = rows.reduce((max, row) => {
+    const match = /^PS-(\d+)$/.exec(row.code ?? "");
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  for (const row of rows) {
+    if (row.code?.trim()) continue;
+    highest += 1;
+    await db
+      .update(catalogItems)
+      .set({ code: `PS-${String(highest).padStart(4, "0")}` })
+      .where(eq(catalogItems.id, row.id));
+  }
+};
+
 export async function GET() {
   if (!(await getChatGPTUser()))
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
+    await ensureCatalogCodes();
     return Response.json({
       catalog: await getDb()
         .select()
@@ -46,15 +77,17 @@ export async function POST(request: Request) {
   if (!(await getChatGPTUser()))
     return Response.json({ error: "Sessão não autenticada." }, { status: 401 });
   try {
+    await ensureCatalogCodes();
     const item = values(await request.json());
     if (!valid(item))
       return Response.json(
         { error: "Revise os dados e preços do item." },
         { status: 400 },
       );
+    const code = await nextCatalogCode();
     const [created] = await getDb()
       .insert(catalogItems)
-      .values(item)
+      .values({ ...item, code })
       .returning();
     return Response.json({ item: created }, { status: 201 });
   } catch {
