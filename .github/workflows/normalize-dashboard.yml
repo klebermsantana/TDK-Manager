@@ -34,18 +34,21 @@ jobs:
       - name: Prepare build scripts
         run: chmod +x scripts/*.sh
 
+      - name: Generate Drizzle migration
+        run: npm run db:generate
+
       - name: Build TDK Manager
         run: npm run build
 
-      - name: Persist normalized dashboard
+      - name: Persist normalized flow and schema
         shell: bash
         run: |
-          if git diff --quiet -- app/crm-dashboard.tsx; then
-            echo "Dashboard already normalized."
+          if git diff --quiet; then
+            echo "Source, schema and migrations already normalized."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/crm-dashboard.tsx
-          git commit -m "fix: aplica fluxo operacional no dashboard"
+          git add -A app db drizzle
+          git commit -m "refactor: consolida fluxo de chamados e pendencias"
           git push origin HEAD:main
