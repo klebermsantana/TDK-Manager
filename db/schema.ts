@@ -282,7 +282,7 @@ export const serviceCalls = sqliteTable(
     serviceType: text("service_type").notNull().default("visita"),
     priority: text("priority").notNull().default("normal"),
     scheduledAt: text("scheduled_at"),
-    status: text("status").notNull().default("triagem"),
+    status: text("status").notNull().default("aberto"),
     subject: text("subject").notNull(),
     description: text("description").notNull(),
     executedService: text("executed_service"),
@@ -325,6 +325,28 @@ export const serviceCallHistory = sqliteTable(
       .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [index("idx_service_call_history_call").on(table.serviceCallId)],
+);
+export const serviceCallPendencies = sqliteTable(
+  "service_call_pendencies",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    serviceCallId: integer("service_call_id")
+      .notNull()
+      .references(() => serviceCalls.id),
+    reason: text("reason").notNull(),
+    notes: text("notes"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at"),
+    startedBy: text("started_by").notNull(),
+    endedBy: text("ended_by"),
+  },
+  (table) => [
+    index("idx_service_call_pendencies_call").on(table.serviceCallId),
+    index("idx_service_call_pendencies_open").on(
+      table.serviceCallId,
+      table.endedAt,
+    ),
+  ],
 );
 export const serviceCallFiles = sqliteTable(
   "service_call_files",

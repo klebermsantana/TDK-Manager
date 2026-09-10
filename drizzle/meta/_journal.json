@@ -211,6 +211,13 @@
       "when": 1788992117027,
       "tag": "0029_chemical_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1789007728557,
+      "tag": "0030_silly_silver_samurai",
+      "breakpoints": true
     }
   ]
 }

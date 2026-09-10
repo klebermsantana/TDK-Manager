@@ -443,6 +443,21 @@ export function ManagerUiPolicies() {
       });
     };
 
+    const handlePendingRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ callId?: number; callNumber?: string }>).detail;
+      const call = detail?.callId
+        ? calls.find((item) => item.id === detail.callId)
+        : undefined;
+      const callNumber =
+        detail?.callNumber ??
+        (call ? displayServiceCallNumber(call.number) : "");
+      if (!callNumber) return;
+      setPendingReason("");
+      setPendingNotes("");
+      setPendingError("");
+      setPendingDialog({ callNumber, editing: false });
+    };
+
     applyPolicies();
     const observer = new MutationObserver(schedulePolicies);
     observer.observe(document.body, {
@@ -451,10 +466,12 @@ export function ManagerUiPolicies() {
       characterData: true,
     });
     document.addEventListener("change", schedulePolicies, true);
+    window.addEventListener("tdk:service-call-pending", handlePendingRequest);
     document.addEventListener("click", handleClick, true);
     return () => {
       observer.disconnect();
       document.removeEventListener("change", schedulePolicies, true);
+      window.removeEventListener("tdk:service-call-pending", handlePendingRequest);
       document.removeEventListener("click", handleClick, true);
     };
   }, [calls, pendencies]);
