@@ -12,6 +12,7 @@ import "./service-call-sla-operations-section.css";
 import "./service-call-profitability-dashboard.css";
 import "./service-call-profitability-plan.css";
 import "./service-call-client-profitability-section.css";
+import "./service-call-financial-goals-section.css";
 import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
@@ -22,6 +23,7 @@ import { ServiceCallSlaConfigShortcut } from "./service-call-sla-config-shortcut
 import { ServiceCallSlaOperationsSection } from "./service-call-sla-operations-section";
 import { ServiceCallProfitabilityDashboard } from "./service-call-profitability-dashboard";
 import { ServiceCallClientProfitabilitySection } from "./service-call-client-profitability-section";
+import { ServiceCallFinancialGoalsSection } from "./service-call-financial-goals-section";
 import { TeamProfitabilityPermissionManager } from "./team-profitability-permission-manager";
 
 export const metadata: Metadata = {
@@ -50,6 +52,7 @@ export default function RootLayout({
         <ServiceCallSlaOperationsSection />
         <ServiceCallProfitabilityDashboard />
         <ServiceCallClientProfitabilitySection />
+        <ServiceCallFinancialGoalsSection />
         <TeamProfitabilityPermissionManager />
         {children}
       </body>
