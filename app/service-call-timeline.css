@@ -1,0 +1,308 @@
+.service-timeline-panel {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+
+.service-timeline-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.service-timeline-head small {
+  display: block;
+  margin-bottom: 4px;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.service-timeline-head h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.service-timeline-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.service-timeline-open-pending {
+  flex: 0 0 auto;
+  max-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.service-timeline-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 18px;
+}
+
+.service-timeline-kpis > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.service-timeline-kpis span {
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-timeline-kpis strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-timeline-kpis .pending {
+  border-color: rgba(217, 119, 6, 0.22);
+  background: #fffbeb;
+}
+
+.service-timeline-kpis .pending span,
+.service-timeline-kpis .pending strong {
+  color: #92400e;
+}
+
+.service-timeline-events {
+  display: grid;
+}
+
+.service-timeline-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.service-timeline-marker {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.service-timeline-marker::after {
+  position: absolute;
+  top: 15px;
+  bottom: -3px;
+  width: 2px;
+  background: #dbe4ee;
+  content: "";
+}
+
+.service-timeline-event:last-child .service-timeline-marker::after {
+  display: none;
+}
+
+.service-timeline-marker i {
+  position: relative;
+  z-index: 1;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px #cbd5e1;
+}
+
+.service-timeline-event.status-aberto .service-timeline-marker i {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+
+.service-timeline-event.status-acionado .service-timeline-marker i,
+.service-timeline-event.status-confirmado .service-timeline-marker i {
+  background: #6366f1;
+  box-shadow: 0 0 0 2px #c7d2fe;
+}
+
+.service-timeline-event.status-deslocamento .service-timeline-marker i {
+  background: #0ea5e9;
+  box-shadow: 0 0 0 2px #bae6fd;
+}
+
+.service-timeline-event.status-atendimento .service-timeline-marker i {
+  background: #10b981;
+  box-shadow: 0 0 0 2px #a7f3d0;
+}
+
+.service-timeline-event.status-pendente .service-timeline-marker i {
+  background: #d97706;
+  box-shadow: 0 0 0 2px #fde68a;
+}
+
+.service-timeline-event.status-concluido .service-timeline-marker i {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px #bbf7d0;
+}
+
+.service-timeline-event.status-cancelado .service-timeline-marker i {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px #fecaca;
+}
+
+.service-timeline-event-body {
+  min-width: 0;
+  margin-bottom: 13px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.service-timeline-event.current .service-timeline-event-body {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.05);
+}
+
+.service-timeline-event.status-pendente .service-timeline-event-body {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: #fffdf7;
+}
+
+.service-timeline-event-body > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.service-timeline-event-body > header > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.service-timeline-stage {
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.service-timeline-event-body header em {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.service-timeline-event-body > header > strong {
+  flex: 0 0 auto;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.service-timeline-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.service-timeline-meta span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.service-timeline-meta b {
+  color: #94a3b8;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.service-timeline-pending-detail {
+  display: grid;
+  gap: 2px;
+  margin-top: 9px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.service-timeline-pending-detail strong {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.service-timeline-pending-detail span {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.service-call-sheet:has(.service-timeline-panel) .opportunity-history {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .service-timeline-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .service-timeline-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .service-timeline-panel {
+    padding: 14px;
+  }
+
+  .service-timeline-head {
+    flex-direction: column;
+  }
+
+  .service-timeline-open-pending {
+    max-width: none;
+  }
+
+  .service-timeline-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
