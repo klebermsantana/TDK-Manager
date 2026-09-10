@@ -25,20 +25,28 @@ const transitions: Record<string, string[]> = {
   aberto: ["acionado", "cancelado"],
   acionado: ["aberto", "confirmado", "cancelado"],
   confirmado: ["acionado", "deslocamento", "cancelado"],
-  deslocamento: ["confirmado", "atendimento", "pendente"],
-  atendimento: ["pendente", "concluido"],
+  deslocamento: ["confirmado", "atendimento", "pendente", "cancelado"],
+  atendimento: ["pendente", "concluido", "cancelado"],
   pendente: [
     "acionado",
     "confirmado",
     "deslocamento",
     "atendimento",
     "concluido",
+    "cancelado",
   ],
   concluido: [],
   cancelado: [],
 };
-const operationalStatuses = new Set([
+const dispatchedStatuses = new Set([
   "acionado",
+  "confirmado",
+  "deslocamento",
+  "atendimento",
+  "pendente",
+  "concluido",
+]);
+const confirmedStatuses = new Set([
   "confirmado",
   "deslocamento",
   "atendimento",
@@ -326,7 +334,8 @@ export async function PATCH(request: Request) {
     values.companyName = selectedCompany.name;
     values.serviceTaker = selectedTaker?.name ?? null;
     values.location = selectedLocationCompany?.name ?? values.location;
-    if (operationalStatuses.has(status)) {
+
+    if (dispatchedStatuses.has(status)) {
       const missing = [
         !values.serviceTaker && "tomador do serviço",
         !values.companyName && "cliente",
@@ -335,33 +344,33 @@ export async function PATCH(request: Request) {
         !values.customerTicket && "chamado interno",
         !values.serviceType && "modalidade",
         !values.subject && "serviço solicitado",
-        !values.scheduledAt && "data e hora do agendamento",
       ].filter(Boolean);
       if (missing.length)
         return Response.json(
           {
-            error: `Para avançar o chamado, informe: ${missing.join(", ")}.`,
+            error: `Antes de acionar o atendimento, informe: ${missing.join(", ")}.`,
+          },
+          { status: 400 },
+        );
+      if (!values.technician)
+        return Response.json(
+          {
+            error:
+              "Defina o técnico responsável antes de alterar o chamado para Acionado.",
           },
           { status: 400 },
         );
     }
-    if (
-      [
-        "confirmado",
-        "deslocamento",
-        "atendimento",
-        "pendente",
-        "concluido",
-      ].includes(status) &&
-      !values.technician
-    )
+
+    if (confirmedStatuses.has(status) && !values.scheduledAt)
       return Response.json(
         {
           error:
-            "Defina o técnico responsável antes de confirmar o atendimento.",
+            "Defina a data e hora do agendamento antes de confirmar o atendimento.",
         },
         { status: 400 },
       );
+
     if (status === "concluido") {
       const [service] = await getDb()
         .select({ id: serviceCallServices.id })
