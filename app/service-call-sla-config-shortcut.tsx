@@ -18,9 +18,9 @@ function findServiceHeaderActionTarget() {
 }
 
 function findConfigureButton() {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((item) =>
-    /configurar regras/i.test(item.textContent ?? ""),
-  );
+  return Array.from(
+    document.querySelectorAll<HTMLButtonElement>(".service-sla-dashboard button"),
+  ).find((item) => /configurar regras/i.test(item.textContent ?? ""));
 }
 
 function findSlaTrigger() {
