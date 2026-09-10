@@ -239,6 +239,13 @@
       "when": 1789067038342,
       "tag": "0033_familiar_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1789077942794,
+      "tag": "0034_supreme_flatman",
+      "breakpoints": true
     }
   ]
 }
