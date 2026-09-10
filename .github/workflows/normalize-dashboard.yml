@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare build scripts
+        run: chmod +x scripts/*.sh
+
       - name: Build TDK Manager
         run: npm run build
 
