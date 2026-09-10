@@ -1,4 +1,4 @@
-name: Normalize TDK Manager dashboard
+name: Validate and normalize TDK Manager
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  normalize-dashboard:
+  validate-dashboard:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -23,9 +23,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
 
       - name: Normalize service-call source
         run: node scripts/normalize-service-call-flow.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TDK Manager
+        run: npm run build
 
       - name: Persist normalized dashboard
         shell: bash
