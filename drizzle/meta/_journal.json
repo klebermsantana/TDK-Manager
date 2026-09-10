@@ -225,6 +225,13 @@
       "when": 1789045389295,
       "tag": "0031_zippy_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1789049126557,
+      "tag": "0032_chunky_longshot",
+      "breakpoints": true
     }
   ]
 }
