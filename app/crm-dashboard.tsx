@@ -966,7 +966,7 @@ export default function CrmDashboard({
       });
     if (kind === "service_call")
       setServiceCallForm({
-        number: `TDK-${Date.now().toString().slice(-8)}`,
+        number: "",
         companyId: "",
         companyName: "",
         serviceTakerCompanyId: "",
@@ -2145,7 +2145,7 @@ export default function CrmDashboard({
           companyId: company.id,
           locationCompanyId: Number(serviceCallForm.locationCompanyId) || null,
           id: editingId,
-          status: current?.status ?? "triagem",
+          status: current?.status ?? "aberto",
           companyName: company.name,
         }),
       });
@@ -2163,7 +2163,7 @@ export default function CrmDashboard({
             id: Date.now(),
             serviceCallId: data.call.id,
             fromStatus: null,
-            toStatus: "triagem",
+            toStatus: "aberto",
             changedBy: user.name,
             createdAt: data.call.createdAt,
           },
@@ -2183,6 +2183,17 @@ export default function CrmDashboard({
   }
   async function changeServiceCallStatus(call: ServiceCall, status: string) {
     if (call.status === status) return;
+    if (status === "pendente") {
+      window.dispatchEvent(
+        new CustomEvent("tdk:service-call-pending", {
+          detail: {
+            callId: call.id,
+            callNumber: serviceCallNumber(call.number),
+          },
+        }),
+      );
+      return;
+    }
     const previous = serviceCalls;
     const changedAt = new Date().toISOString();
     setServiceCalls((current) =>
@@ -2364,7 +2375,7 @@ export default function CrmDashboard({
     service_calls: [
       "OPERAÇÃO • ATENDIMENTOS",
       "Chamados e ordens de serviço",
-      "Faça a triagem, distribua e acompanhe os atendimentos técnicos.",
+      "Receba, distribua e acompanhe os atendimentos técnicos desde a abertura.",
     ],
     billings: [
       "FINANCEIRO • FATURAMENTO",
@@ -3244,7 +3255,7 @@ export default function CrmDashboard({
                     {serviceCallStatuses
                       .filter(
                         (status) =>
-                          !["triagem", "cancelado"].includes(status.id),
+                          status.id !== "cancelado",
                       )
                       .map((status) => (
                         <Button
@@ -3614,12 +3625,12 @@ export default function CrmDashboard({
               {editingId ? "Editar chamado" : "Novo chamado"}
             </DialogTitle>
             <span className="service-call-header-number">
-              {serviceCallForm.number}
+              {editingId ? serviceCallForm.number : "Número gerado automaticamente ao salvar"}
             </span>
             <DialogDescription>
               {editingId
                 ? "Complete as informações necessárias para avançar o atendimento."
-                : "Registre inicialmente a ocorrência para triagem."}
+                : "Registre a ocorrência. O chamado será criado diretamente como Aberto, mesmo com informações operacionais pendentes."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createServiceCall} className="form">
@@ -4108,9 +4119,7 @@ export default function CrmDashboard({
                 </div>
               )}
             <small className="service-call-rule-note">
-              Para mudar o status para Aberto, preencha tomador, local, contato,
-              chamado interno, modalidade e data e hora do agendamento. O
-              departamento é opcional.
+              Chamados novos começam em Aberto. Para Acionar, complete tomador, local, contato, chamado interno e modalidade, além de definir o técnico. O agendamento passa a ser obrigatório ao Confirmar o atendimento. Ao marcar Pendente, informe obrigatoriamente o motivo da pendência. O departamento é opcional.
             </small>
             {error && (
               <div className="service-call-form-error" role="alert">
@@ -4121,7 +4130,7 @@ export default function CrmDashboard({
               </div>
             )}
             <SaveButton saving={saving} disabled={!companies.length}>
-              {editingId ? "Salvar informações" : "Cadastrar em triagem"}
+              {editingId ? "Salvar informações" : "Cadastrar chamado"}
             </SaveButton>
           </form>
         </DialogContent>
@@ -4932,10 +4941,10 @@ export default function CrmDashboard({
               <Field label="Código">
                 <Input
                   value={catalogForm.code}
-                  onChange={(event) =>
-                    setCatalogForm({ ...catalogForm, code: event.target.value })
-                  }
-                  placeholder="Ex.: MAT-001"
+                  disabled
+                  readOnly
+                  placeholder="Gerado automaticamente · PS-0001, PS-0002..."
+                  title="Código gerado automaticamente pelo TDK Manager"
                 />
               </Field>
             </div>
@@ -5038,7 +5047,7 @@ export default function CrmDashboard({
           </DialogHeader>
           <form className="form" onSubmit={saveEquipment}>
             <div className="form-split">
-              <Field label="Código"><Input value={equipmentForm.code} onChange={(e) => setEquipmentForm({...equipmentForm, code:e.target.value})} placeholder="Ex.: EQP-001" /></Field>
+              <Field label="Código"><Input value={equipmentForm.code} disabled readOnly placeholder="Gerado automaticamente · EQ-0001, EQ-0002..." title="Código gerado automaticamente pelo TDK Manager" /></Field>
               <Field label="Unidade"><Input value={equipmentForm.unit} onChange={(e) => setEquipmentForm({...equipmentForm, unit:e.target.value})} /></Field>
             </div>
             <Field label="Descrição"><Input required value={equipmentForm.description} onChange={(e) => setEquipmentForm({...equipmentForm, description:e.target.value})} placeholder="Nome do equipamento, parte ou peça" /></Field>
@@ -7740,7 +7749,6 @@ function BillingCard({
   );
 }
 const serviceCallStatuses = [
-  { id: "triagem", label: "Triagem" },
   { id: "aberto", label: "Aberto" },
   { id: "acionado", label: "Acionado" },
   { id: "confirmado", label: "Confirmado" },
