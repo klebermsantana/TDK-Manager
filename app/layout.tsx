@@ -10,6 +10,7 @@ import "./service-call-sla-stage.css";
 import "./service-call-sla-config-shortcut.css";
 import "./service-call-sla-operations-section.css";
 import "./service-call-profitability-dashboard.css";
+import "./service-call-profitability-plan.css";
 import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
