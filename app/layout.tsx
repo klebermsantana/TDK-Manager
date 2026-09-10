@@ -4,6 +4,7 @@ import "./navigation-kanban-fixes.css";
 import "./equipment-scanner.css";
 import "./service-call-flow.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
+import { ServiceCallPendingBridge } from "./service-call-pending-bridge";
 
 export const metadata: Metadata = {
   title: "TDK Manager | Gestão comercial",
@@ -23,6 +24,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className="antialiased">
         <ManagerUiPolicies />
+        <ServiceCallPendingBridge />
         {children}
       </body>
     </html>
