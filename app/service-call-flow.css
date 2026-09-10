@@ -1,3 +1,11 @@
+.service-column.status-triagem {
+  display: none !important;
+}
+
+select option[value="triagem"] {
+  display: none !important;
+}
+
 .service-status-purpose {
   margin: 0 12px 12px;
   padding: 8px 10px;
