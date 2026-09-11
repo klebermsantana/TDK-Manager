@@ -14,6 +14,8 @@ type SuggestionItem = {
   date: string | null;
   amount: number;
   availableAmount: number;
+  historyScore: number;
+  historyMatches: number;
 };
 type Suggestion = {
   id: string;
@@ -40,7 +42,16 @@ type SmartTransaction = {
 };
 type Payload = {
   transactions: SmartTransaction[];
-  summary: { transactionsWithSuggestions: number; highConfidence: number; exactMatches: number; partialMatches: number };
+  summary: {
+    transactionsWithSuggestions: number;
+    highConfidence: number;
+    exactMatches: number;
+    partialMatches: number;
+    learnedConfirmations: number;
+    learnedCounterparts: number;
+    settledConfirmations: number;
+    historyBoosted: number;
+  };
 };
 
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -124,35 +135,37 @@ export function TreasuryReconciliationSmartSuggestions() {
     if (filter === "high") return transaction.suggestions.some((item) => item.confidence === "alta");
     if (filter === "exact") return transaction.suggestions.some((item) => item.type === "exact");
     if (filter === "partial") return transaction.suggestions.some((item) => item.type === "partial");
+    if (filter === "learned") return transaction.suggestions.some((item) => item.items.some((candidate) => candidate.historyMatches > 0));
     return true;
   }), [payload, filter]);
 
   if (!target || authorized !== true) return null;
 
   return <>
-    {createPortal(<button type="button" className="smart-trigger" onClick={() => setOpen(true)}><span>SUGESTÕES</span><strong>Agrupamento inteligente</strong><small>{payload ? `${payload.summary.transactionsWithSuggestions} lançamento(s) com proposta` : "valor + data + histórico"}</small></button>, target)}
+    {createPortal(<button type="button" className="smart-trigger" onClick={() => setOpen(true)}><span>SUGESTÕES</span><strong>Agrupamento inteligente</strong><small>{payload ? `${payload.summary.transactionsWithSuggestions} proposta(s) · ${payload.summary.learnedConfirmations} histórico(s)` : "valor + data + histórico aprendido"}</small></button>, target)}
     {open ? <div className="smart-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
       <section className="smart-dashboard" role="dialog" aria-modal="true" aria-label="Sugestões inteligentes de conciliação">
         <header className="smart-header">
-          <div><small>FINANCEIRO · TESOURARIA</small><h2>Sugestões inteligentes de agrupamento</h2><p>O TDK Manager compara valor, data, cliente/fornecedor e títulos em aberto. A sugestão somente vira rateio depois da sua confirmação; nenhuma baixa é automática.</p></div>
+          <div><small>FINANCEIRO · TESOURARIA</small><h2>Sugestões inteligentes de agrupamento</h2><p>O TDK Manager compara valor, data, cliente/fornecedor e títulos em aberto e usa conciliações confirmadas como reforço de histórico. O aprendizado altera apenas a confiança da sugestão; nunca executa conciliação ou baixa sozinho.</p></div>
           <div className="smart-actions"><label><span>Conta bancária</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">Selecione</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` · ${account.bankName}` : ""}</option>)}</select></label><button type="button" onClick={() => void refresh()} disabled={!accountId || loading}>{loading ? "Analisando…" : "Recalcular"}</button><button type="button" className="close" onClick={() => setOpen(false)}>Fechar</button></div>
         </header>
 
         {message ? <div className="smart-message">{message}</div> : null}
         <div className="smart-kpis">
           <article><span>Lançamentos com sugestão</span><strong>{payload?.summary.transactionsWithSuggestions ?? 0}</strong><small>com combinação acima do limite de confiança</small></article>
-          <article className="good"><span>Alta confiança</span><strong>{payload?.summary.highConfidence ?? 0}</strong><small>forte aderência de valor/data/histórico</small></article>
+          <article className="good"><span>Alta confiança</span><strong>{payload?.summary.highConfidence ?? 0}</strong><small>forte aderência de valor, data e histórico</small></article>
           <article><span>Fechamento exato</span><strong>{payload?.summary.exactMatches ?? 0}</strong><small>combinação fecha o valor do extrato</small></article>
           <article><span>Possível parcial</span><strong>{payload?.summary.partialMatches ?? 0}</strong><small>extrato menor que um título compatível</small></article>
+          <article className="learned"><span>Aprendizado ativo</span><strong>{payload?.summary.learnedConfirmations ?? 0}</strong><small>{payload?.summary.learnedCounterparts ?? 0} cliente(s)/fornecedor(es) · {payload?.summary.historyBoosted ?? 0} sugestão(ões) reforçadas</small></article>
         </div>
 
-        <div className="smart-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">Todas as sugestões</option><option value="high">Alta confiança</option><option value="exact">Fechamento exato</option><option value="partial">Pagamento parcial</option></select><span>{rows.length} lançamento(s) exibido(s)</span></div>
+        <div className="smart-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">Todas as sugestões</option><option value="high">Alta confiança</option><option value="exact">Fechamento exato</option><option value="partial">Pagamento parcial</option><option value="learned">Reforçadas pelo histórico</option></select><span>{rows.length} lançamento(s) exibido(s) · {payload?.summary.settledConfirmations ?? 0} baixa(s) confirmada(s) na base de aprendizado</span></div>
 
         <div className="smart-content">{rows.length ? rows.map((transaction) => <article className="smart-transaction" key={transaction.id}>
           <header><div><small>{shortDate(transaction.transactionDate)} · {transaction.amount >= 0 ? "ENTRADA" : "SAÍDA"}</small><h3>{transaction.description}</h3><p>{transaction.memo || transaction.document || "Sem histórico complementar"}</p></div><div><strong>{money(transaction.amount)}</strong><span>{transaction.allocatedAmount > 0.01 ? `${money(transaction.allocatedAmount)} já rateados` : "sem rateio atual"}</span><em>{money(transaction.unallocatedAmount)} para analisar</em></div></header>
           <div className="smart-suggestions">{transaction.suggestions.map((suggestion, index) => <section key={suggestion.id} className={`smart-suggestion confidence-${suggestion.confidence}`}>
             <div className="smart-suggestion-head"><div><span className={`smart-confidence ${suggestion.confidence}`}>{suggestion.confidence === "alta" ? "Alta confiança" : suggestion.confidence === "media" ? "Confiança média" : "Revisar com atenção"}</span><strong>Opção {index + 1} · {suggestionLabel(suggestion.type)}</strong></div><div><b>{money(suggestion.total)}</b><small>score {suggestion.score}/99{suggestion.difference > 0.01 ? ` · diferença ${money(suggestion.difference)}` : " · valor fechado"}</small></div></div>
-            <div className="smart-items">{suggestion.items.map((item) => <div key={item.key}><span>{movementLabel(item.movementType)}</span><div><strong>{item.document} · {item.counterpart}</strong><small>{item.detail} · {shortDate(item.date)}</small></div><b>{money(item.amount)}</b></div>)}</div>
+            <div className="smart-items">{suggestion.items.map((item) => <div key={item.key}><span>{movementLabel(item.movementType)}</span><div><strong>{item.document} · {item.counterpart}</strong><small>{item.detail} · {shortDate(item.date)}{item.historyMatches > 0 ? ` · histórico: ${item.historyMatches} confirmação(ões)` : ""}</small></div><b>{money(item.amount)}</b></div>)}</div>
             <div className="smart-reasons"><span>Por que foi sugerido:</span>{suggestion.reasons.map((reason) => <small key={reason}>{reason}</small>)}</div>
             {suggestion.items.some((item) => item.movementType === "billing") ? <p className="smart-warning">Há faturamento sem parcelas nesta proposta. O rateio pode ser salvo, mas a baixa exigirá a geração das parcelas.</p> : null}
             <button type="button" onClick={() => void applySuggestion(transaction, suggestion)} disabled={loading}>Aplicar rateio</button>
