@@ -98,6 +98,7 @@ export const treasuryCapacityAlertSettings = sqliteTable("treasury_capacity_aler
   id: integer("id").primaryKey(),
   lookaheadDays: integer("lookahead_days").notNull().default(7),
   lowCapacityThresholdPct: real("low_capacity_threshold_pct").notNull().default(70),
+  preparationLeadBusinessDays: integer("preparation_lead_business_days").notNull().default(1),
   uncoveredEnabled: integer("uncovered_enabled", { mode: "boolean" }).notNull().default(true),
   singlePointEnabled: integer("single_point_enabled", { mode: "boolean" }).notNull().default(true),
   absenceWithoutCoverageEnabled: integer("absence_without_coverage_enabled", { mode: "boolean" }).notNull().default(true),
@@ -125,6 +126,16 @@ export const treasuryCapacityAlertOccurrences = sqliteTable(
     acknowledgedBy: text("acknowledged_by"),
     acknowledgedAt: text("acknowledged_at"),
     acknowledgementNote: text("acknowledgement_note"),
+    assignedUserId: integer("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedName: text("assigned_name"),
+    assignedEmail: text("assigned_email"),
+    assignedAt: text("assigned_at"),
+    assignmentSource: text("assignment_source"),
+    preparationDueAt: text("preparation_due_at"),
+    preparedBy: text("prepared_by"),
+    preparedAt: text("prepared_at"),
+    preparationNote: text("preparation_note"),
+    preparationEscalatedAt: text("preparation_escalated_at"),
     resolvedAt: text("resolved_at"),
     resolutionReason: text("resolution_reason"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -134,6 +145,8 @@ export const treasuryCapacityAlertOccurrences = sqliteTable(
     index("idx_treasury_capacity_alert_key_status").on(table.alertKey, table.status),
     index("idx_treasury_capacity_alert_status_severity").on(table.status, table.severity),
     index("idx_treasury_capacity_alert_risk_date").on(table.riskDate, table.status),
+    index("idx_treasury_capacity_alert_assignee").on(table.assignedUserId, table.status),
+    index("idx_treasury_capacity_alert_preparation_due").on(table.preparationDueAt, table.status),
   ],
 );
 
@@ -148,4 +161,24 @@ export const treasuryCapacityAlertAudit = sqliteTable(
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [index("idx_treasury_capacity_alert_audit_occurrence").on(table.occurrenceId, table.createdAt)],
+);
+
+export const treasuryCapacityAlertAssignmentHistory = sqliteTable(
+  "treasury_capacity_alert_assignment_history",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurrenceId: integer("occurrence_id").notNull().references(() => treasuryCapacityAlertOccurrences.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedName: text("assigned_name").notNull(),
+    assignedEmail: text("assigned_email").notNull(),
+    assignmentSource: text("assignment_source").notNull(),
+    assignedBy: text("assigned_by").notNull(),
+    assignedAt: text("assigned_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    unassignedAt: text("unassigned_at"),
+    unassignedBy: text("unassigned_by"),
+  },
+  (table) => [
+    index("idx_treasury_capacity_alert_assignment_occurrence").on(table.occurrenceId, table.assignedAt),
+    index("idx_treasury_capacity_alert_assignment_user").on(table.userId, table.unassignedAt),
+  ],
 );
