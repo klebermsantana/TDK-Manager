@@ -14,6 +14,7 @@ import "./service-call-profitability-plan.css";
 import "./service-call-client-profitability-section.css";
 import "./service-call-financial-goals-section.css";
 import "./service-call-financial-forecast-section.css";
+import "./cash-forecast-dashboard.css";
 import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
@@ -26,6 +27,7 @@ import { ServiceCallProfitabilityDashboard } from "./service-call-profitability-
 import { ServiceCallClientProfitabilitySection } from "./service-call-client-profitability-section";
 import { ServiceCallFinancialGoalsSection } from "./service-call-financial-goals-section";
 import { ServiceCallFinancialForecastSection } from "./service-call-financial-forecast-section";
+import { CashForecastDashboard } from "./cash-forecast-dashboard";
 import { TeamProfitabilityPermissionManager } from "./team-profitability-permission-manager";
 
 export const metadata: Metadata = {
@@ -56,6 +58,7 @@ export default function RootLayout({
         <ServiceCallClientProfitabilitySection />
         <ServiceCallFinancialGoalsSection />
         <ServiceCallFinancialForecastSection />
+        <CashForecastDashboard />
         <TeamProfitabilityPermissionManager />
         {children}
       </body>
