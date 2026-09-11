@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 type Confidence = "high" | "medium";
+type FeedbackReason = "competence" | "availability" | "workload" | "coverage" | "context" | "other";
 type Candidate = {
   userId: number;
   name: string;
@@ -14,9 +15,15 @@ type Candidate = {
   skillSummary: string;
   loadPoints: number;
   explicitCoverage: boolean;
+  baseScore: number;
   score: number;
   autoEligible: boolean;
   reason: string;
+  feedbackAdjustment: number;
+  feedbackPositive: number;
+  feedbackNegative: number;
+  feedbackExplanation: string | null;
+  feedbackBlockedAuto: boolean;
 };
 type Suggestion = Candidate & { confidence: Confidence };
 type Item = {
@@ -36,14 +43,32 @@ type Item = {
   suggestion: Suggestion | null;
   alternatives: Candidate[];
 };
+type FeedbackRow = {
+  id: number;
+  occurrenceId: number;
+  userId: number;
+  candidateName: string;
+  candidateEmail: string;
+  alertType: string;
+  domain: string | null;
+  feedback: "positive" | "negative";
+  reasonCode: FeedbackReason;
+  note: string | null;
+  candidateScore: number | null;
+  performedBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
 type Payload = {
   generatedAt: string;
   settings: {
     autoAssignmentEnabled: boolean;
     minimumSkillLevel: number;
+    feedbackLearningEnabled: boolean;
   };
   items: Item[];
   autoAssigned: number;
+  feedbackHistory: FeedbackRow[];
   summary: {
     activeUnprepared: number;
     assigned: number;
@@ -52,6 +77,9 @@ type Payload = {
     mediumConfidence: number;
     noEligibleCandidate: number;
     autoAssigned: number;
+    feedbackTotal: number;
+    feedbackPositive: number;
+    feedbackNegative: number;
   };
 };
 
@@ -59,6 +87,14 @@ const dateLabel = (value: string) => new Intl.DateTimeFormat("pt-BR").format(new
 const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
 const severityLabel = { critical: "Crítico", high: "Alto", medium: "Médio" } as const;
 const availabilityLabel = { available: "Disponível", limited: "Limitado", unavailable: "Indisponível" } as const;
+const feedbackReasonLabel: Record<FeedbackReason, string> = {
+  competence: "Competência",
+  availability: "Disponibilidade",
+  workload: "Carga",
+  coverage: "Cobertura programada",
+  context: "Contexto do risco",
+  other: "Outro",
+};
 
 export function TreasuryCapacitySmartRoutingDashboard() {
   const [target, setTarget] = useState<HTMLElement | null>(null);
@@ -66,12 +102,15 @@ export function TreasuryCapacitySmartRoutingDashboard() {
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(false);
-  const [savingId, setSavingId] = useState<number | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [message, setMessage] = useState("");
   const [autoAssignmentEnabled, setAutoAssignmentEnabled] = useState(false);
   const [minimumSkillLevel, setMinimumSkillLevel] = useState(2);
+  const [feedbackLearningEnabled, setFeedbackLearningEnabled] = useState(true);
   const [filter, setFilter] = useState<"all" | "unassigned" | "high" | "no_fit">("all");
+  const [showFeedbackHistory, setShowFeedbackHistory] = useState(false);
+  const [feedbackReasons, setFeedbackReasons] = useState<Record<number, FeedbackReason>>({});
 
   useEffect(() => {
     const locate = () => setTarget(document.querySelector<HTMLElement>(".receivable-metrics"));
@@ -99,6 +138,7 @@ export function TreasuryCapacitySmartRoutingDashboard() {
       setAuthorized(true);
       setAutoAssignmentEnabled(Boolean(result.settings.autoAssignmentEnabled));
       setMinimumSkillLevel(Number(result.settings.minimumSkillLevel));
+      setFeedbackLearningEnabled(Boolean(result.settings.feedbackLearningEnabled));
       if (result.autoAssigned > 0 && !silent) setMessage(`${result.autoAssigned} preventivo(s) atribuído(s) automaticamente nesta sincronização.`);
       else if (!silent) setMessage("");
     } catch {
@@ -125,7 +165,8 @@ export function TreasuryCapacitySmartRoutingDashboard() {
 
   async function applySuggestion(item: Item) {
     if (!item.suggestion) return;
-    setSavingId(item.occurrenceId);
+    const key = `apply-${item.occurrenceId}`;
+    setSavingKey(key);
     try {
       const response = await fetch("/api/treasury-capacity-alert-routing", {
         method: "PATCH",
@@ -140,7 +181,46 @@ export function TreasuryCapacitySmartRoutingDashboard() {
       setMessage(`${result.suggestion?.name ?? "Responsável"} definido para preparar o preventivo.`);
       await refresh(true);
     } finally {
-      setSavingId(null);
+      setSavingKey(null);
+    }
+  }
+
+  async function sendFeedback(item: Item, feedback: "positive" | "negative") {
+    if (!item.suggestion) return;
+    const reasonCode = feedbackReasons[item.occurrenceId] ?? "competence";
+    const note = window.prompt(
+      feedback === "positive"
+        ? `Observação opcional sobre a boa sugestão “${item.suggestion.name}”:`
+        : `Explique opcionalmente por que “${item.suggestion.name}” não é a pessoa adequada:`,
+      "",
+    );
+    if (note === null) return;
+    const key = `feedback-${item.occurrenceId}`;
+    setSavingKey(key);
+    try {
+      const response = await fetch("/api/treasury-capacity-alert-routing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "feedback",
+          occurrenceId: item.occurrenceId,
+          userId: item.suggestion.userId,
+          feedback,
+          reasonCode,
+          note: note.trim(),
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) {
+        setMessage(result.error ?? "Não foi possível registrar o feedback.");
+        return;
+      }
+      setMessage(feedback === "positive"
+        ? "Feedback positivo registrado. O histórico poderá favorecer sugestões semelhantes de forma limitada."
+        : "Feedback negativo registrado. O histórico poderá reduzir a prioridade de sugestões semelhantes de forma limitada.");
+      await refresh(true);
+    } finally {
+      setSavingKey(null);
     }
   }
 
@@ -150,16 +230,14 @@ export function TreasuryCapacitySmartRoutingDashboard() {
       const response = await fetch("/api/treasury-capacity-alert-routing", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "settings", autoAssignmentEnabled, minimumSkillLevel }),
+        body: JSON.stringify({ action: "settings", autoAssignmentEnabled, minimumSkillLevel, feedbackLearningEnabled }),
       });
       const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) {
         setMessage(result.error ?? "Não foi possível salvar o roteamento preventivo.");
         return;
       }
-      setMessage(autoAssignmentEnabled
-        ? "Autoatribuição ativada. Apenas sugestões de alta confiança serão aplicadas automaticamente."
-        : "Autoatribuição desativada. As sugestões continuam disponíveis para aplicação manual.");
+      setMessage(`${autoAssignmentEnabled ? "Autoatribuição ativada" : "Autoatribuição desativada"}. Aprendizado por feedback ${feedbackLearningEnabled ? "ativado" : "desativado"}.`);
       await refresh(true);
     } finally {
       setSavingSettings(false);
@@ -191,9 +269,10 @@ export function TreasuryCapacitySmartRoutingDashboard() {
           <div>
             <small>TESOURARIA · ROTEAMENTO PREVENTIVO</small>
             <h2>Quem deve preparar cada risco</h2>
-            <p>Recomendação explicável baseada em competência, disponibilidade na data do risco, coberturas programadas e carga atual. Atribuições manuais existentes nunca são substituídas.</p>
+            <p>Recomendação explicável baseada em competência, disponibilidade, cobertura, carga e feedback auditável. Atribuições manuais existentes nunca são substituídas.</p>
           </div>
           <div className="smart-routing-actions">
+            <button type="button" onClick={() => setShowFeedbackHistory((value) => !value)}>Feedback</button>
             <button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Atualizando…" : "Atualizar"}</button>
             <button type="button" onClick={openPreventives}>Abrir Preventivos</button>
             <button type="button" className="close" onClick={() => setOpen(false)}>Fechar</button>
@@ -208,15 +287,17 @@ export function TreasuryCapacitySmartRoutingDashboard() {
           <article className={summary?.highConfidence ? "good" : ""}><span>Alta confiança</span><strong>{summary?.highConfidence ?? 0}</strong><small>aptos à autoatribuição</small></article>
           <article><span>Moderados</span><strong>{summary?.mediumConfidence ?? 0}</strong><small>exigem decisão humana</small></article>
           <article className={summary?.noEligibleCandidate ? "danger" : "good"}><span>Sem candidato</span><strong>{summary?.noEligibleCandidate ?? 0}</strong><small>requer ajuste de competência/escala</small></article>
+          <article><span>Feedbacks</span><strong>{summary?.feedbackTotal ?? 0}</strong><small>{summary?.feedbackPositive ?? 0} positivos · {summary?.feedbackNegative ?? 0} negativos</small></article>
         </div>
 
         <section className="smart-routing-settings">
-          <div>
+          <div className="settings-copy">
             <small>POLÍTICA</small>
-            <strong>Atribuição automática</strong>
-            <p>Quando ligada, só aplica sugestões de alta confiança. Empates ou aderência moderada continuam manuais.</p>
+            <strong>Automação e aprendizado</strong>
+            <p>Autoatribuição exige alta confiança. O feedback altera o ranking de forma pequena, limitada e com menor peso conforme envelhece.</p>
           </div>
-          <label className="smart-routing-toggle"><input type="checkbox" checked={autoAssignmentEnabled} onChange={(event) => setAutoAssignmentEnabled(event.target.checked)} /><span>{autoAssignmentEnabled ? "Ativada" : "Desativada"}</span></label>
+          <label className="smart-routing-toggle"><input type="checkbox" checked={autoAssignmentEnabled} onChange={(event) => setAutoAssignmentEnabled(event.target.checked)} /><span>Autoatribuição {autoAssignmentEnabled ? "ativada" : "desativada"}</span></label>
+          <label className="smart-routing-toggle"><input type="checkbox" checked={feedbackLearningEnabled} onChange={(event) => setFeedbackLearningEnabled(event.target.checked)} /><span>Aprendizado {feedbackLearningEnabled ? "ativado" : "desativado"}</span></label>
           <label><span>Nível mínimo</span><select value={minimumSkillLevel} onChange={(event) => setMinimumSkillLevel(Number(event.target.value))}><option value={1}>1 · Apoio</option><option value={2}>2 · Habilitado</option><option value={3}>3 · Especialista</option></select></label>
           <button type="button" onClick={() => void saveSettings()} disabled={savingSettings}>{savingSettings ? "Salvando…" : "Salvar política"}</button>
         </section>
@@ -242,19 +323,35 @@ export function TreasuryCapacitySmartRoutingDashboard() {
                 <strong>{item.suggestion.name}</strong>
                 <small>{item.suggestion.email}</small>
                 <p>{item.suggestion.reason}</p>
-                <div className="suggestion-metrics"><span>{availabilityLabel[item.suggestion.availability]}</span><span>{item.suggestion.skillSummary}</span><span>Carga {item.suggestion.loadPoints.toFixed(1)}</span></div>
-                {!item.assignedUserId ? <button type="button" className="primary" onClick={() => void applySuggestion(item)} disabled={savingId === item.occurrenceId}>{savingId === item.occurrenceId ? "Aplicando…" : "Aplicar sugestão"}</button> : <em>Atribuição existente preservada</em>}
+                <div className="suggestion-metrics"><span>{availabilityLabel[item.suggestion.availability]}</span><span>{item.suggestion.skillSummary}</span><span>Carga {item.suggestion.loadPoints.toFixed(1)}</span><span>Score {item.suggestion.score.toFixed(2)}</span></div>
+                {item.suggestion.feedbackExplanation ? <div className={`routing-learning ${item.suggestion.feedbackAdjustment <= 0 ? "positive" : "negative"}`}><b>Aprendizado:</b> {item.suggestion.feedbackExplanation}{item.suggestion.feedbackBlockedAuto ? <strong> · autoatribuição bloqueada por feedback recente de competência/contexto</strong> : null}</div> : null}
+                {!item.assignedUserId ? <button type="button" className="primary" onClick={() => void applySuggestion(item)} disabled={savingKey === `apply-${item.occurrenceId}`}>{savingKey === `apply-${item.occurrenceId}` ? "Aplicando…" : "Aplicar sugestão"}</button> : <em>Atribuição existente preservada</em>}
+                <div className="routing-feedback">
+                  <label><span>Motivo do feedback</span><select value={feedbackReasons[item.occurrenceId] ?? "competence"} onChange={(event) => setFeedbackReasons((current) => ({ ...current, [item.occurrenceId]: event.target.value as FeedbackReason }))}><option value="competence">Competência</option><option value="availability">Disponibilidade</option><option value="workload">Carga</option><option value="coverage">Cobertura programada</option><option value="context">Contexto do risco</option><option value="other">Outro</option></select></label>
+                  <div><button type="button" className="feedback-good" onClick={() => void sendFeedback(item, "positive")} disabled={savingKey === `feedback-${item.occurrenceId}`}>Boa sugestão</button><button type="button" className="feedback-bad" onClick={() => void sendFeedback(item, "negative")} disabled={savingKey === `feedback-${item.occurrenceId}`}>Não é a pessoa adequada</button></div>
+                </div>
               </> : <div className="routing-no-fit"><strong>Nenhum candidato elegível</strong><p>Revise competências, escalas ou disponibilidade antes de atribuir este preventivo.</p></div>}
             </div>
 
             <div className="routing-alternatives">
               <span>ALTERNATIVAS</span>
-              {item.alternatives.length ? item.alternatives.map((candidate) => <div key={candidate.userId}><strong>{candidate.name}</strong><small>{candidate.skillSummary} · carga {candidate.loadPoints.toFixed(1)}</small></div>) : <small>Sem alternativas adicionais.</small>}
+              {item.alternatives.length ? item.alternatives.map((candidate) => <div key={candidate.userId}><strong>{candidate.name}</strong><small>{candidate.skillSummary} · carga {candidate.loadPoints.toFixed(1)} · score {candidate.score.toFixed(2)}</small>{candidate.feedbackExplanation ? <em>{candidate.feedbackExplanation}</em> : null}</div>) : <small>Sem alternativas adicionais.</small>}
             </div>
           </article>) : <div className="smart-routing-empty"><strong>Nada neste filtro.</strong><p>Quando houver preventivos não preparados, as sugestões aparecerão aqui.</p></div>}
         </section>
 
-        <footer className="smart-routing-footer">O score é usado somente para ordenar candidatos e não representa desempenho individual. A autoatribuição não substitui responsável já definido e só ocorre com disponibilidade plena, competência mínima e vantagem clara sobre a segunda opção.</footer>
+        {showFeedbackHistory ? <section className="smart-routing-feedback-history">
+          <header><div><small>HISTÓRICO AUDITÁVEL</small><h3>Feedback das recomendações</h3></div><strong>{payload?.feedbackHistory.length ?? 0} recente(s)</strong></header>
+          <div>
+            {(payload?.feedbackHistory ?? []).length ? (payload?.feedbackHistory ?? []).map((row) => <article key={row.id} className={row.feedback}>
+              <div><b>{row.feedback === "positive" ? "Boa sugestão" : "Não adequada"}</b><strong>{row.candidateName}</strong><span>{feedbackReasonLabel[row.reasonCode] ?? row.reasonCode}</span></div>
+              <p>{row.note || "Sem observação adicional."}</p>
+              <small>{row.performedBy} · {dateTime(row.createdAt)} · ocorrência #{row.occurrenceId}{row.domain ? ` · ${row.domain}` : ` · ${row.alertType}`}</small>
+            </article>) : <div className="smart-routing-empty"><strong>Nenhum feedback registrado.</strong><p>As avaliações das sugestões aparecerão aqui.</p></div>}
+          </div>
+        </section> : null}
+
+        <footer className="smart-routing-footer">O score apenas ordena candidatos e não representa desempenho. O aprendizado usa feedback do mesmo contexto, com efeito limitado entre -1,20 e +2,00 pontos e peso decrescente com o tempo. Feedback negativo recente por competência/contexto impede somente autoatribuição; a decisão manual continua disponível.</footer>
       </section>
     </div> : null}
   </>;
