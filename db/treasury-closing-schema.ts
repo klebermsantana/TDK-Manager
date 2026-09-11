@@ -125,6 +125,22 @@ export const treasuryAlertSettings = sqliteTable(
   },
 );
 
+export const treasuryAlertAssignmentRules = sqliteTable(
+  "treasury_alert_assignment_rules",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    alertType: text("alert_type").notNull().unique(),
+    assignedUserId: integer("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedName: text("assigned_name"),
+    assignedEmail: text("assigned_email"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    updatedBy: text("updated_by"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("idx_treasury_alert_assignment_rule_type").on(table.alertType, table.active)],
+);
+
 export const treasuryAlertOccurrences = sqliteTable(
   "treasury_alert_occurrences",
   {
@@ -147,6 +163,11 @@ export const treasuryAlertOccurrences = sqliteTable(
     acknowledgementNote: text("acknowledgement_note"),
     ackEscalatedAt: text("ack_escalated_at"),
     resolutionEscalatedAt: text("resolution_escalated_at"),
+    assignedUserId: integer("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedName: text("assigned_name"),
+    assignedEmail: text("assigned_email"),
+    assignedAt: text("assigned_at"),
+    assignmentSource: text("assignment_source"),
     resolvedAt: text("resolved_at"),
     resolutionReason: text("resolution_reason"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -156,6 +177,7 @@ export const treasuryAlertOccurrences = sqliteTable(
     index("idx_treasury_alert_occurrence_key_status").on(table.alertKey, table.status),
     index("idx_treasury_alert_occurrence_status_severity").on(table.status, table.severity),
     index("idx_treasury_alert_occurrence_first_seen").on(table.firstSeenAt),
+    index("idx_treasury_alert_occurrence_assignee").on(table.assignedUserId, table.status),
   ],
 );
 
@@ -171,5 +193,25 @@ export const treasuryAlertOccurrenceAudit = sqliteTable(
   },
   (table) => [
     index("idx_treasury_alert_occurrence_audit_occurrence").on(table.occurrenceId, table.createdAt),
+  ],
+);
+
+export const treasuryAlertAssignmentHistory = sqliteTable(
+  "treasury_alert_assignment_history",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurrenceId: integer("occurrence_id").notNull().references(() => treasuryAlertOccurrences.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedName: text("assigned_name").notNull(),
+    assignedEmail: text("assigned_email").notNull(),
+    assignmentSource: text("assignment_source").notNull(),
+    assignedBy: text("assigned_by").notNull(),
+    assignedAt: text("assigned_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    unassignedAt: text("unassigned_at"),
+    unassignedBy: text("unassigned_by"),
+  },
+  (table) => [
+    index("idx_treasury_alert_assignment_history_occurrence").on(table.occurrenceId, table.assignedAt),
+    index("idx_treasury_alert_assignment_history_user").on(table.userId, table.unassignedAt),
   ],
 );
