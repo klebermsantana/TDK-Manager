@@ -1,1 +1,1 @@
-export { GET } from "../treasury-capacity-v2/route";
+export { GET } from "../treasury-capacity-v3/route";
