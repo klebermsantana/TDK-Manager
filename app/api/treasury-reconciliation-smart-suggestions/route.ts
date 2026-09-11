@@ -322,7 +322,7 @@ export async function GET(request: Request) {
         })
         .filter((candidate) => candidate.availableAmount > 0.009)
         .filter((candidate) => candidate.textScore > 0 || candidate.dateDiff === null || candidate.dateDiff <= 60)
-        .sort((a, b) => b.relevance - a.relevance || (a.dateDiff ?? 999) - (b.dateDiff ?? 999) || a.date!.localeCompare(b.date ?? "9999"));
+        .sort((a, b) => b.relevance - a.relevance || (a.dateDiff ?? 999) - (b.dateDiff ?? 999) || (a.date ?? "9999").localeCompare(b.date ?? "9999"));
 
       const legacyMatched = Boolean(transaction.matchedMovementType && transaction.matchedMovementId && !currentAllocations.length);
       const suggestions = unallocatedAmount > 0.009 && !legacyMatched ? buildSuggestions(unallocatedAmount, ranked) : [];
