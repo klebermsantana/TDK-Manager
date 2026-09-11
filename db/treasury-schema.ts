@@ -82,6 +82,6 @@ export const treasuryStatementTransactions = sqliteTable(
   (table) => [
     uniqueIndex("uq_treasury_statement_external").on(table.importId, table.externalId),
     index("idx_treasury_statement_transaction_account_date").on(table.bankAccountId, table.transactionDate),
-    index("idx_treasury_statement_transaction_match").on(table.matchedMovementType, table.matchedMovementId),
+    uniqueIndex("uq_treasury_statement_matched_movement").on(table.matchedMovementType, table.matchedMovementId),
   ],
 );
