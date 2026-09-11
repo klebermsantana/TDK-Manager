@@ -1,15 +1,18 @@
 import { eq } from "drizzle-orm";
 import { requirePermission } from "@/app/authorization";
+import { ensureFinancialLedger } from "@/app/financial-ledger";
 import { getDb } from "@/db";
 import { billings, receivables, sales } from "@/db/schema";
+import { treasuryFinancialEvents } from "@/db/treasury-schema";
 
 export async function GET() {
   const denied = await requirePermission("receivables");
   if (denied) return denied;
 
   try {
+    await ensureFinancialLedger();
     const db = getDb();
-    const [billingRows, receivableRows] = await Promise.all([
+    const [billingRows, receivableRows, financialEvents] = await Promise.all([
       db
         .select({
           id: billings.id,
@@ -47,13 +50,30 @@ export async function GET() {
         .from(receivables)
         .innerJoin(billings, eq(receivables.billingId, billings.id))
         .innerJoin(sales, eq(billings.saleId, sales.id)),
+      db.select().from(treasuryFinancialEvents).where(eq(treasuryFinancialEvents.movementType, "receivable")),
     ]);
+
+    const eventsByMovement = new Map<number, typeof financialEvents>();
+    for (const event of financialEvents) {
+      const list = eventsByMovement.get(event.movementId) ?? [];
+      list.push(event);
+      eventsByMovement.set(event.movementId, list);
+    }
 
     const billingIdsWithInstallments = new Set(receivableRows.map((row) => row.billingId));
 
     const installmentEntries = receivableRows.map((row) => {
       const grossAmount = Math.max(0, Number(row.amount) + Number(row.interest) + Number(row.penalty) - Number(row.discount));
       const receivedAmount = Math.max(0, Number(row.receivedAmount));
+      const realizedEvents = (eventsByMovement.get(row.id) ?? [])
+        .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.id - b.id)
+        .map((event) => ({
+          id: event.id,
+          eventDate: event.eventDate,
+          amount: Number(event.amount),
+          eventType: event.eventType,
+          source: event.source,
+        }));
       return {
         id: `receivable-${row.id}`,
         billingId: row.billingId,
@@ -66,6 +86,7 @@ export async function GET() {
         receivedAmount,
         openAmount: Math.max(0, grossAmount - receivedAmount),
         paymentDate: row.paymentDate,
+        realizedEvents,
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -90,6 +111,7 @@ export async function GET() {
           receivedAmount,
           openAmount: Math.max(0, grossAmount - receivedAmount),
           paymentDate: null,
+          realizedEvents: [] as Array<{ id: number; eventDate: string; amount: number; eventType: string; source: string }>,
           status: row.status,
           createdAt: row.createdAt,
           updatedAt: row.createdAt,
@@ -110,6 +132,7 @@ export async function GET() {
         billingsWithoutInstallments: fallbackEntries.length,
         billingsWithoutDueDate: fallbackEntries.filter((item) => !item.dueDate && item.openAmount > 0).length,
         receivedWithoutPaymentDate: installmentEntries.filter((item) => item.receivedAmount > 0 && !item.paymentDate).length,
+        legacySnapshotEvents: financialEvents.filter((item) => item.eventType === "legacy_snapshot").length,
       },
     });
   } catch {
