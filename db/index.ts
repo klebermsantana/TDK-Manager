@@ -5,6 +5,7 @@ import * as slaSchema from "./sla-schema";
 import * as profitabilitySchema from "./profitability-schema";
 import * as goalScopeSchema from "./goal-scope-schema";
 import * as treasurySchema from "./treasury-schema";
+import * as treasuryClosingSchema from "./treasury-closing-schema";
 
 const schema = {
   ...coreSchema,
@@ -12,6 +13,7 @@ const schema = {
   ...profitabilitySchema,
   ...goalScopeSchema,
   ...treasurySchema,
+  ...treasuryClosingSchema,
 };
 
 export function getDb() {
