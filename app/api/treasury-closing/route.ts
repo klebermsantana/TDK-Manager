@@ -2,9 +2,11 @@ import { lte } from "drizzle-orm";
 import { ensureFinancialLedger, isDateKey, todaySaoPaulo } from "@/app/financial-ledger";
 import { ensureTreasuryTables, requireTreasuryAccess } from "@/app/treasury-runtime";
 import { getDb } from "@/db";
+import { receivables } from "@/db/schema";
 import {
   treasuryBankAccounts,
   treasuryFinancialEvents,
+  treasuryMovementAccounts,
   treasuryReconciliationAllocations,
   treasuryStatementImports,
   treasuryStatementTransactions,
@@ -29,13 +31,29 @@ export async function GET(request: Request) {
     if (!isDateKey(requestedDate)) return Response.json({ error: "Data de fechamento inválida." }, { status: 400 });
 
     const db = getDb();
-    const [accounts, transactions, allocations, events, imports] = await Promise.all([
+    const [accounts, transactions, allocations, events, imports, movementAccounts, receivableRows] = await Promise.all([
       db.select().from(treasuryBankAccounts),
       db.select().from(treasuryStatementTransactions).where(lte(treasuryStatementTransactions.transactionDate, requestedDate)),
       db.select().from(treasuryReconciliationAllocations),
       db.select().from(treasuryFinancialEvents).where(lte(treasuryFinancialEvents.eventDate, requestedDate)),
       db.select().from(treasuryStatementImports),
+      db.select().from(treasuryMovementAccounts),
+      db.select({ id: receivables.id, billingId: receivables.billingId }).from(receivables),
     ]);
+
+    const movementAccountMap = new Map(movementAccounts.map((item) => [`${item.movementType}:${item.movementId}`, item.bankAccountId]));
+    const receivableBillingMap = new Map(receivableRows.map((item) => [item.id, item.billingId]));
+    const resolveEventAccount = (event: typeof treasuryFinancialEvents.$inferSelect) => {
+      if (event.bankAccountId) return event.bankAccountId;
+      const direct = movementAccountMap.get(`${event.movementType}:${event.movementId}`);
+      if (direct) return direct;
+      if (event.movementType === "receivable") {
+        const billingId = receivableBillingMap.get(event.movementId);
+        if (billingId) return movementAccountMap.get(`billing:${billingId}`) ?? null;
+      }
+      return null;
+    };
+    const resolvedEvents = events.map((event) => ({ ...event, resolvedBankAccountId: resolveEventAccount(event) }));
 
     const allocationByTransaction = new Map<number, number>();
     for (const allocation of allocations) {
@@ -48,8 +66,8 @@ export async function GET(request: Request) {
     const activeAccounts = accounts.filter((account) => account.active);
     const rows = activeAccounts.map((account) => {
       const anchorValid = requestedDate >= account.balanceDate;
-      const accountEvents = events
-        .filter((event) => event.bankAccountId === account.id)
+      const accountEvents = resolvedEvents
+        .filter((event) => event.resolvedBankAccountId === account.id)
         .filter((event) => event.eventDate > account.balanceDate && event.eventDate <= requestedDate);
       const ledgerNet = round2(accountEvents.reduce((sum, event) => sum + signedLedgerAmount(event), 0));
       const bookBalance = round2(Number(account.currentBalance) + (anchorValid ? ledgerNet : 0));
@@ -94,8 +112,8 @@ export async function GET(request: Request) {
         .sort((a, b) => (b.periodEnd ?? "").localeCompare(a.periodEnd ?? "") || b.id - a.id)[0] ?? null;
       const statementCovered = Boolean(latestImport?.periodEnd && latestImport.periodEnd >= requestedDate);
 
-      const unknownEvents = events.filter((event) =>
-        event.bankAccountId === null &&
+      const unknownEvents = resolvedEvents.filter((event) =>
+        event.resolvedBankAccountId === null &&
         event.eventDate > account.balanceDate &&
         event.eventDate <= requestedDate,
       );
@@ -146,13 +164,12 @@ export async function GET(request: Request) {
     });
 
     const comparable = rows.filter((row) => row.closingDifference !== null && row.statementBalanceCurrent);
-    const unknownEventIds = new Set<number>();
-    let unknownLedgerAmount = 0;
-    for (const event of events.filter((item) => item.bankAccountId === null && item.eventDate <= requestedDate)) {
-      if (unknownEventIds.has(event.id)) continue;
-      unknownEventIds.add(event.id);
-      unknownLedgerAmount += Math.abs(Number(event.amount));
-    }
+    const earliestAnchor = activeAccounts.length
+      ? activeAccounts.reduce((min, account) => account.balanceDate < min ? account.balanceDate : min, activeAccounts[0].balanceDate)
+      : requestedDate;
+    const unresolvedEvents = resolvedEvents.filter((event) =>
+      event.resolvedBankAccountId === null && event.eventDate > earliestAnchor && event.eventDate <= requestedDate,
+    );
 
     return Response.json({
       date: requestedDate,
@@ -166,8 +183,8 @@ export async function GET(request: Request) {
         closingDifference: round2(comparable.reduce((sum, row) => sum + Number(row.closingDifference ?? 0), 0)),
         unallocatedStatementAmount: round2(rows.reduce((sum, row) => sum + row.unallocatedAmount, 0)),
         unallocatedStatementCount: rows.reduce((sum, row) => sum + row.unallocatedCount, 0),
-        unknownLedgerEventCount: unknownEventIds.size,
-        unknownLedgerAmount: round2(unknownLedgerAmount),
+        unknownLedgerEventCount: unresolvedEvents.length,
+        unknownLedgerAmount: round2(unresolvedEvents.reduce((sum, event) => sum + Math.abs(Number(event.amount)), 0)),
       },
     });
   } catch {
