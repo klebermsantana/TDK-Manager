@@ -10,6 +10,7 @@ import {
 } from "@/db/treasury-closing-schema";
 import {
   ensureTreasuryRoutingUsers,
+  getTreasuryRoutingSnapshot,
   isTreasuryRoutingEligible,
   listTreasuryRoutingProfiles,
   routingDomainForAlertType,
@@ -129,9 +130,18 @@ export async function assignDefaultOnEscalation(occurrence: typeof treasuryAlert
   if (!rule?.active || !rule.assignedUserId) return occurrence;
 
   const domain = routingDomainForAlertType(occurrence.alertType);
+  const configuredSnapshot = await getTreasuryRoutingSnapshot(rule.assignedUserId);
   const eligibleConfigured = await isTreasuryRoutingEligible(rule.assignedUserId, domain);
   let targetUserId: number | null = eligibleConfigured ? rule.assignedUserId : null;
   let fallbackNote = "";
+
+  if (!targetUserId && configuredSnapshot.coverageUserId) {
+    const coverageEligible = await isTreasuryRoutingEligible(configuredSnapshot.coverageUserId, domain);
+    if (coverageEligible) {
+      targetUserId = configuredSnapshot.coverageUserId;
+      fallbackNote = " O responsável padrão está afetado por uma escala programada; foi usada a cobertura temporária cadastrada.";
+    }
+  }
 
   if (!targetUserId) {
     const candidates = await listTreasuryAlertUsers();
@@ -150,17 +160,17 @@ export async function assignDefaultOnEscalation(occurrence: typeof treasuryAlert
       loadByUser.set(row.assignedUserId!, (loadByUser.get(row.assignedUserId!) ?? 0) + (row.priority === "critical" ? 3 : row.priority === "high" ? 2 : 1));
     }
     const routed = profiles
-      .filter((profile) => profile.availability !== "unavailable" && Number(profile.skills[domain] ?? 0) > 0)
+      .filter((profile) => profile.effectiveAvailability !== "unavailable" && Number(profile.skills[domain] ?? 0) > 0)
       .sort((a, b) => {
-        const availabilityA = a.availability === "available" ? 0 : 1;
-        const availabilityB = b.availability === "available" ? 0 : 1;
+        const availabilityA = a.effectiveAvailability === "available" ? 0 : 1;
+        const availabilityB = b.effectiveAvailability === "available" ? 0 : 1;
         return availabilityA - availabilityB
           || Number(b.skills[domain] ?? 0) - Number(a.skills[domain] ?? 0)
           || (loadByUser.get(a.id) ?? 0) - (loadByUser.get(b.id) ?? 0)
           || a.name.localeCompare(b.name);
       });
     targetUserId = routed[0]?.id ?? null;
-    if (targetUserId) fallbackNote = " O responsável padrão estava indisponível ou sem competência para o tipo do alerta; foi usado o melhor substituto elegível pela matriz de roteamento.";
+    if (targetUserId) fallbackNote = " O responsável padrão estava indisponível ou sem competência; foi usado o melhor substituto elegível pela matriz e pelas escalas programadas.";
   }
 
   if (!targetUserId) return occurrence;
@@ -170,7 +180,7 @@ export async function assignDefaultOnEscalation(occurrence: typeof treasuryAlert
       userId: targetUserId,
       source: "escalation_rule",
       performedBy: "system",
-      note: `Responsável atribuído automaticamente após escalonamento, respeitando competência e disponibilidade.${fallbackNote}`,
+      note: `Responsável atribuído automaticamente após escalonamento, respeitando competência, disponibilidade e escalas.${fallbackNote}`,
     });
   } catch {
     return occurrence;
