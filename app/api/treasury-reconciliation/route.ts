@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { ensureTreasuryTables, requireTreasuryAccess } from "@/app/treasury-runtime";
 import { getDb } from "@/db";
@@ -6,6 +6,8 @@ import { billings, payables, receivables, sales, suppliers } from "@/db/schema";
 import {
   treasuryBankAccounts,
   treasuryMovementAccounts,
+  treasuryReconciliationAudit,
+  treasuryReconciliationSettlements,
   treasuryStatementImports,
   treasuryStatementTransactions,
 } from "@/db/treasury-schema";
@@ -13,6 +15,7 @@ import {
 const validMovementTypes = new Set(["receivable", "billing", "payable"]);
 const validFileTypes = new Set(["ofx", "csv"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const centsEqual = (a: number, b: number) => Math.abs(a - b) <= 0.01;
 
 type Candidate = {
   key: string;
@@ -23,6 +26,8 @@ type Candidate = {
   counterpart: string;
   detail: string;
   amount: number;
+  remainingAmount: number;
+  recordedAmount: number;
   date: string | null;
   bankAccountId: number | null;
 };
@@ -89,8 +94,9 @@ async function loadCandidates() {
   const candidates: Candidate[] = [];
   receivableRows.forEach((row) => {
     const gross = Math.max(0, Number(row.amount) + Number(row.interest) + Number(row.penalty) - Number(row.discount));
-    const received = Math.max(0, Number(row.receivedAmount));
-    const amount = received > 0 ? received : Math.max(0, gross - received);
+    const recordedAmount = Math.max(0, Number(row.receivedAmount));
+    const remainingAmount = Math.max(0, gross - recordedAmount);
+    const amount = remainingAmount > 0 ? remainingAmount : recordedAmount;
     if (amount <= 0) return;
     candidates.push({
       key: `receivable:${row.id}`,
@@ -101,13 +107,16 @@ async function loadCandidates() {
       counterpart: row.companyName,
       detail: `Parcela ${row.installmentNumber} · ${row.saleNumber}`,
       amount,
-      date: row.paymentDate ?? row.dueDate,
+      remainingAmount,
+      recordedAmount,
+      date: remainingAmount > 0 ? row.dueDate : row.paymentDate ?? row.dueDate,
       bankAccountId: accountFor("receivable", row.id, row.billingId),
     });
   });
   billingRows.filter((row) => !billingIdsWithInstallments.has(row.id) && row.status !== "cancelado").forEach((row) => {
-    const received = Math.max(0, Number(row.receivedAmount));
-    const amount = received > 0 ? received : Math.max(0, Number(row.total) - received);
+    const recordedAmount = Math.max(0, Number(row.receivedAmount));
+    const remainingAmount = Math.max(0, Number(row.total) - recordedAmount);
+    const amount = remainingAmount > 0 ? remainingAmount : recordedAmount;
     if (amount <= 0) return;
     candidates.push({
       key: `billing:${row.id}`,
@@ -116,15 +125,18 @@ async function loadCandidates() {
       direction: "inflow",
       document: row.number,
       counterpart: row.companyName,
-      detail: `${row.saleNumber} · faturamento`,
+      detail: `${row.saleNumber} · faturamento sem parcelas`,
       amount,
+      remainingAmount,
+      recordedAmount,
       date: row.dueDate,
       bankAccountId: accountFor("billing", row.id),
     });
   });
   payableRows.filter((row) => row.status !== "cancelado").forEach((row) => {
-    const paid = Math.max(0, Number(row.paidAmount));
-    const amount = paid > 0 ? paid : Math.max(0, Number(row.amount) - paid);
+    const recordedAmount = Math.max(0, Number(row.paidAmount));
+    const remainingAmount = Math.max(0, Number(row.amount) - recordedAmount);
+    const amount = remainingAmount > 0 ? remainingAmount : recordedAmount;
     if (amount <= 0) return;
     candidates.push({
       key: `payable:${row.id}`,
@@ -135,7 +147,9 @@ async function loadCandidates() {
       counterpart: row.supplierName,
       detail: `${row.description}${row.installmentCount > 1 ? ` · Parcela ${row.installmentNumber}/${row.installmentCount}` : ""}`,
       amount,
-      date: row.paymentDate ?? row.dueDate,
+      remainingAmount,
+      recordedAmount,
+      date: remainingAmount > 0 ? row.dueDate : row.paymentDate ?? row.dueDate,
       bankAccountId: accountFor("payable", row.id),
     });
   });
@@ -163,6 +177,22 @@ function rankedCandidates(transaction: typeof treasuryStatementTransactions.$inf
     .slice(0, 5);
 }
 
+async function validateCandidateForTransaction(
+  transaction: typeof treasuryStatementTransactions.$inferSelect,
+  movementType: string,
+  movementId: number,
+) {
+  const candidates = await loadCandidates();
+  const candidate = candidates.find((item) => item.movementType === movementType && item.movementId === movementId);
+  if (!candidate || candidate.direction !== (transaction.amount >= 0 ? "inflow" : "outflow")) {
+    return { error: Response.json({ error: "O lançamento selecionado não é compatível com a movimentação bancária." }, { status: 400 }), candidate: null };
+  }
+  if (candidate.bankAccountId !== null && candidate.bankAccountId !== transaction.bankAccountId) {
+    return { error: Response.json({ error: "Este lançamento já está vinculado a outra conta bancária." }, { status: 409 }), candidate: null };
+  }
+  return { error: null, candidate };
+}
+
 export async function GET(request: Request) {
   const denied = await requireTreasuryAccess();
   if (denied) return denied;
@@ -174,15 +204,18 @@ export async function GET(request: Request) {
     const [account] = await db.select().from(treasuryBankAccounts).where(eq(treasuryBankAccounts.id, accountId)).limit(1);
     if (!account) return Response.json({ error: "Conta bancária não encontrada." }, { status: 404 });
 
-    const [imports, transactions, candidates, matchedRows] = await Promise.all([
+    const [imports, transactions, candidates, matchedRows, settlements, audit] = await Promise.all([
       db.select().from(treasuryStatementImports).where(eq(treasuryStatementImports.bankAccountId, accountId)).orderBy(desc(treasuryStatementImports.createdAt)).limit(20),
       db.select().from(treasuryStatementTransactions).where(eq(treasuryStatementTransactions.bankAccountId, accountId)).orderBy(desc(treasuryStatementTransactions.transactionDate), desc(treasuryStatementTransactions.id)).limit(1000),
       loadCandidates(),
       db.select({ movementType: treasuryStatementTransactions.matchedMovementType, movementId: treasuryStatementTransactions.matchedMovementId })
         .from(treasuryStatementTransactions),
+      db.select().from(treasuryReconciliationSettlements).where(eq(treasuryReconciliationSettlements.bankAccountId, accountId)),
+      db.select().from(treasuryReconciliationAudit).where(eq(treasuryReconciliationAudit.bankAccountId, accountId)).orderBy(desc(treasuryReconciliationAudit.createdAt), desc(treasuryReconciliationAudit.id)).limit(50),
     ]);
     const usedKeys = new Set(matchedRows.filter((item) => item.movementType && item.movementId).map((item) => `${item.movementType}:${item.movementId}`));
     const candidateMap = new Map(candidates.map((item) => [item.key, item]));
+    const settlementByTransaction = new Map(settlements.map((item) => [item.statementTransactionId, item]));
 
     const rows = transactions.map((transaction) => {
       const alternatives = rankedCandidates(transaction, candidates, usedKeys);
@@ -199,7 +232,7 @@ export async function GET(request: Request) {
         dateDiff = matched.date ? daysBetween(transaction.transactionDate, matched.date) : null;
         status = amountDiff <= 0.01 && (dateDiff === null || dateDiff <= 7) ? "reconciled" : "divergent";
       } else if (suggestion && !ambiguous) status = "suggested";
-      return { ...transaction, status, matched, suggestion: ambiguous ? null : suggestion, alternatives, amountDiff, dateDiff };
+      return { ...transaction, status, matched, suggestion: ambiguous ? null : suggestion, alternatives, amountDiff, dateDiff, settlement: settlementByTransaction.get(transaction.id) ?? null };
     });
 
     const summary = {
@@ -208,10 +241,11 @@ export async function GET(request: Request) {
       divergent: rows.filter((item) => item.status === "divergent").length,
       suggested: rows.filter((item) => item.status === "suggested").length,
       unmatched: rows.filter((item) => item.status === "unmatched").length,
+      settled: rows.filter((item) => item.settlement).length,
       credits: rows.filter((item) => Number(item.amount) > 0).reduce((sum, item) => sum + Number(item.amount), 0),
       debits: rows.filter((item) => Number(item.amount) < 0).reduce((sum, item) => sum + Math.abs(Number(item.amount)), 0),
     };
-    return Response.json({ account, imports, transactions: rows, summary });
+    return Response.json({ account, imports, transactions: rows, summary, audit });
   } catch {
     return Response.json({ error: "Não foi possível carregar a conciliação bancária." }, { status: 503 });
   }
@@ -297,48 +331,256 @@ export async function PATCH(request: Request) {
     const [transaction] = await db.select().from(treasuryStatementTransactions).where(eq(treasuryStatementTransactions.id, transactionId)).limit(1);
     if (!transaction) return Response.json({ error: "Lançamento bancário não encontrado." }, { status: 404 });
 
+    const [activeSettlement] = await db.select().from(treasuryReconciliationSettlements)
+      .where(eq(treasuryReconciliationSettlements.statementTransactionId, transactionId)).limit(1);
+
     if (action === "unmatch") {
+      if (activeSettlement) return Response.json({ error: "Estorne a baixa financeira antes de desfazer esta conciliação." }, { status: 409 });
       const [updated] = await db.update(treasuryStatementTransactions).set({
         matchedMovementType: null, matchedMovementId: null, matchedAt: null, matchedBy: null, matchMethod: null, updatedAt: new Date().toISOString(),
       }).where(eq(treasuryStatementTransactions.id, transactionId)).returning();
       return Response.json({ transaction: updated });
     }
 
+    if (action === "reverse-settlement") {
+      if (!activeSettlement) return Response.json({ error: "Este lançamento não possui baixa assistida ativa." }, { status: 409 });
+      const now = new Date().toISOString();
+      const auditValues = {
+        statementTransactionId: transaction.id,
+        bankAccountId: transaction.bankAccountId,
+        movementType: activeSettlement.movementType,
+        movementId: activeSettlement.movementId,
+        action: "reverse",
+        amount: activeSettlement.settlementAmount,
+        previousAmount: activeSettlement.resultingAmount,
+        resultingAmount: activeSettlement.previousAmount,
+        previousStatus: activeSettlement.resultingStatus,
+        resultingStatus: activeSettlement.previousStatus,
+        paymentDate: activeSettlement.paymentDate,
+        performedBy: auth.email,
+      };
+
+      if (activeSettlement.movementType === "receivable") {
+        const [current] = await db.select().from(receivables).where(eq(receivables.id, activeSettlement.movementId)).limit(1);
+        if (!current) return Response.json({ error: "A parcela vinculada não existe mais." }, { status: 409 });
+        if (!centsEqual(Number(current.receivedAmount), Number(activeSettlement.resultingAmount))) {
+          return Response.json({ error: "A parcela foi alterada depois da baixa assistida. Faça o estorno pelo financeiro para não sobrescrever alterações posteriores." }, { status: 409 });
+        }
+        const siblings = await db.select().from(receivables).where(eq(receivables.billingId, current.billingId));
+        const totalAfter = siblings.reduce((sum, item) => sum + (item.id === current.id ? Number(activeSettlement.previousAmount) : Number(item.receivedAmount)), 0);
+        const [billing] = await db.select().from(billings).where(eq(billings.id, current.billingId)).limit(1);
+        const billingStatus = billing ? (totalAfter <= 0 ? "pendente" : totalAfter < Number(billing.total) ? "parcial" : "recebido") : "pendente";
+        const queries = [
+          db.update(receivables).set({
+            receivedAmount: activeSettlement.previousAmount,
+            paymentDate: activeSettlement.previousPaymentDate,
+            status: activeSettlement.previousStatus,
+            updatedAt: now,
+          }).where(eq(receivables.id, current.id)),
+          db.delete(treasuryReconciliationSettlements).where(eq(treasuryReconciliationSettlements.id, activeSettlement.id)),
+          db.insert(treasuryReconciliationAudit).values(auditValues),
+          db.update(treasuryStatementTransactions).set({ matchMethod: "manual", updatedAt: now }).where(eq(treasuryStatementTransactions.id, transaction.id)),
+        ] as const;
+        if (billing) {
+          await db.batch([...queries, db.update(billings).set({ receivedAmount: totalAfter, status: billingStatus, updatedAt: now }).where(eq(billings.id, billing.id))]);
+        } else {
+          await db.batch(queries);
+        }
+      } else if (activeSettlement.movementType === "payable") {
+        const [current] = await db.select().from(payables).where(eq(payables.id, activeSettlement.movementId)).limit(1);
+        if (!current) return Response.json({ error: "A conta a pagar vinculada não existe mais." }, { status: 409 });
+        if (!centsEqual(Number(current.paidAmount), Number(activeSettlement.resultingAmount))) {
+          return Response.json({ error: "A conta foi alterada depois da baixa assistida. Faça o estorno pelo financeiro para não sobrescrever alterações posteriores." }, { status: 409 });
+        }
+        await db.batch([
+          db.update(payables).set({
+            paidAmount: activeSettlement.previousAmount,
+            paymentDate: activeSettlement.previousPaymentDate,
+            status: activeSettlement.previousStatus,
+            updatedAt: now,
+          }).where(eq(payables.id, current.id)),
+          db.delete(treasuryReconciliationSettlements).where(eq(treasuryReconciliationSettlements.id, activeSettlement.id)),
+          db.insert(treasuryReconciliationAudit).values(auditValues),
+          db.update(treasuryStatementTransactions).set({ matchMethod: "manual", updatedAt: now }).where(eq(treasuryStatementTransactions.id, transaction.id)),
+        ]);
+      } else {
+        return Response.json({ error: "Este tipo de movimento não possui estorno assistido." }, { status: 400 });
+      }
+      return Response.json({ reversed: true });
+    }
+
     const movementType = clean(payload.movementType);
     const movementId = Number(payload.movementId);
-    if (action !== "match" || !validMovementTypes.has(movementType) || !Number.isInteger(movementId) || movementId <= 0) {
+    if (!validMovementTypes.has(movementType) || !Number.isInteger(movementId) || movementId <= 0) {
       return Response.json({ error: "Selecione um lançamento do TDK Manager para conciliar." }, { status: 400 });
     }
-    const candidates = await loadCandidates();
-    const candidate = candidates.find((item) => item.movementType === movementType && item.movementId === movementId);
-    if (!candidate || candidate.direction !== (transaction.amount >= 0 ? "inflow" : "outflow")) {
-      return Response.json({ error: "O lançamento selecionado não é compatível com a movimentação bancária." }, { status: 400 });
-    }
-    if (candidate.bankAccountId !== null && candidate.bankAccountId !== transaction.bankAccountId) {
-      return Response.json({ error: "Este lançamento já está vinculado a outra conta bancária." }, { status: 409 });
+    const validation = await validateCandidateForTransaction(transaction, movementType, movementId);
+    if (validation.error || !validation.candidate) return validation.error!;
+    const candidate = validation.candidate;
+    if (transaction.matchedMovementType && (transaction.matchedMovementType !== movementType || transaction.matchedMovementId !== movementId)) {
+      return Response.json({ error: "Desfaça a conciliação atual antes de selecionar outro lançamento." }, { status: 409 });
     }
     const [alreadyMatched] = await db.select({ id: treasuryStatementTransactions.id }).from(treasuryStatementTransactions)
       .where(and(eq(treasuryStatementTransactions.matchedMovementType, movementType), eq(treasuryStatementTransactions.matchedMovementId, movementId))).limit(1);
     if (alreadyMatched && alreadyMatched.id !== transactionId) return Response.json({ error: "Este lançamento do sistema já foi conciliado com outro item do extrato." }, { status: 409 });
 
-    const [updated] = await db.update(treasuryStatementTransactions).set({
-      matchedMovementType: movementType,
-      matchedMovementId: movementId,
-      matchedAt: new Date().toISOString(),
-      matchedBy: auth.email,
-      matchMethod: "manual",
-      updatedAt: new Date().toISOString(),
-    }).where(eq(treasuryStatementTransactions.id, transactionId)).returning();
-
     const whereAllocation = and(eq(treasuryMovementAccounts.movementType, movementType), eq(treasuryMovementAccounts.movementId, movementId));
     const [allocation] = await db.select().from(treasuryMovementAccounts).where(whereAllocation).limit(1);
-    if (allocation) {
-      if (allocation.bankAccountId !== transaction.bankAccountId) await db.update(treasuryMovementAccounts).set({ bankAccountId: transaction.bankAccountId, updatedAt: new Date().toISOString() }).where(eq(treasuryMovementAccounts.id, allocation.id));
-    } else {
-      await db.insert(treasuryMovementAccounts).values({ movementType, movementId, bankAccountId: transaction.bankAccountId });
+    const allocationQuery = allocation
+      ? db.update(treasuryMovementAccounts).set({ bankAccountId: transaction.bankAccountId, updatedAt: new Date().toISOString() }).where(eq(treasuryMovementAccounts.id, allocation.id))
+      : db.insert(treasuryMovementAccounts).values({ movementType, movementId, bankAccountId: transaction.bankAccountId });
+
+    if (action === "match") {
+      const [updated] = await db.update(treasuryStatementTransactions).set({
+        matchedMovementType: movementType,
+        matchedMovementId: movementId,
+        matchedAt: new Date().toISOString(),
+        matchedBy: auth.email,
+        matchMethod: "manual",
+        updatedAt: new Date().toISOString(),
+      }).where(eq(treasuryStatementTransactions.id, transactionId)).returning();
+      await allocationQuery;
+      return Response.json({ transaction: updated });
     }
-    return Response.json({ transaction: updated });
-  } catch {
-    return Response.json({ error: "Não foi possível atualizar a conciliação." }, { status: 500 });
+
+    if (action !== "settle") return Response.json({ error: "Ação de conciliação inválida." }, { status: 400 });
+    if (activeSettlement) return Response.json({ error: "Este lançamento bancário já gerou uma baixa financeira." }, { status: 409 });
+    if (movementType === "billing") {
+      return Response.json({ error: "Gere as parcelas deste faturamento antes de usar a baixa assistida." }, { status: 409 });
+    }
+
+    const statementAmount = Math.abs(Number(transaction.amount));
+    const paymentDate = transaction.transactionDate;
+    const now = new Date().toISOString();
+    const [settlementForMovement] = await db.select({ id: treasuryReconciliationSettlements.id }).from(treasuryReconciliationSettlements)
+      .where(and(eq(treasuryReconciliationSettlements.movementType, movementType), eq(treasuryReconciliationSettlements.movementId, movementId))).limit(1);
+    if (settlementForMovement) return Response.json({ error: "Este título já possui uma baixa assistida ativa em outro lançamento bancário." }, { status: 409 });
+
+    if (movementType === "receivable") {
+      const [current] = await db.select().from(receivables).where(eq(receivables.id, movementId)).limit(1);
+      if (!current) return Response.json({ error: "Parcela não encontrada." }, { status: 404 });
+      const target = Math.max(0, Number(current.amount) + Number(current.interest) + Number(current.penalty) - Number(current.discount));
+      const previousAmount = Math.max(0, Number(current.receivedAmount));
+      const remaining = Math.max(0, target - previousAmount);
+      if (remaining <= 0.01) return Response.json({ error: "Esta parcela já está integralmente recebida." }, { status: 409 });
+      if (!centsEqual(statementAmount, remaining)) {
+        return Response.json({ error: `A baixa assistida exige o saldo integral restante da parcela (${remaining.toFixed(2)}). Para recebimento parcial, use a baixa manual.` }, { status: 409 });
+      }
+      const siblings = await db.select().from(receivables).where(eq(receivables.billingId, current.billingId));
+      const totalAfter = siblings.reduce((sum, item) => sum + (item.id === current.id ? target : Number(item.receivedAmount)), 0);
+      const [billing] = await db.select().from(billings).where(eq(billings.id, current.billingId)).limit(1);
+      const billingStatus = billing ? (totalAfter <= 0 ? "pendente" : totalAfter < Number(billing.total) ? "parcial" : "recebido") : "pendente";
+      const settlementValues = {
+        statementTransactionId: transaction.id,
+        bankAccountId: transaction.bankAccountId,
+        movementType,
+        movementId,
+        settlementAmount: statementAmount,
+        previousAmount,
+        resultingAmount: target,
+        previousStatus: current.status,
+        resultingStatus: "recebido",
+        previousPaymentDate: current.paymentDate,
+        paymentDate,
+        settledBy: auth.email,
+      };
+      const auditValues = {
+        statementTransactionId: transaction.id,
+        bankAccountId: transaction.bankAccountId,
+        movementType,
+        movementId,
+        action: "settle",
+        amount: statementAmount,
+        previousAmount,
+        resultingAmount: target,
+        previousStatus: current.status,
+        resultingStatus: "recebido",
+        paymentDate,
+        performedBy: auth.email,
+      };
+      const baseQueries = [
+        db.insert(treasuryReconciliationSettlements).values(settlementValues),
+        db.insert(treasuryReconciliationAudit).values(auditValues),
+        db.update(receivables).set({ receivedAmount: target, paymentDate, status: "recebido", updatedAt: now }).where(eq(receivables.id, current.id)),
+        db.update(treasuryStatementTransactions).set({
+          matchedMovementType: movementType,
+          matchedMovementId: movementId,
+          matchedAt: now,
+          matchedBy: auth.email,
+          matchMethod: "settle",
+          updatedAt: now,
+        }).where(eq(treasuryStatementTransactions.id, transaction.id)),
+        allocationQuery,
+      ] as const;
+      if (billing) {
+        await db.batch([...baseQueries, db.update(billings).set({ receivedAmount: totalAfter, status: billingStatus, updatedAt: now }).where(eq(billings.id, billing.id))]);
+      } else {
+        await db.batch(baseQueries);
+      }
+      return Response.json({ settled: true, amount: statementAmount, paymentDate, status: "recebido" });
+    }
+
+    if (movementType === "payable") {
+      const [current] = await db.select().from(payables).where(eq(payables.id, movementId)).limit(1);
+      if (!current) return Response.json({ error: "Conta a pagar não encontrada." }, { status: 404 });
+      if (current.status === "cancelado") return Response.json({ error: "Não é possível baixar uma conta cancelada." }, { status: 409 });
+      const target = Math.max(0, Number(current.amount));
+      const previousAmount = Math.max(0, Number(current.paidAmount));
+      const remaining = Math.max(0, target - previousAmount);
+      if (remaining <= 0.01) return Response.json({ error: "Esta conta já está integralmente paga." }, { status: 409 });
+      if (!centsEqual(statementAmount, remaining)) {
+        return Response.json({ error: `A baixa assistida exige o saldo integral restante da conta (${remaining.toFixed(2)}). Para pagamento parcial, use a baixa manual.` }, { status: 409 });
+      }
+      const settlementValues = {
+        statementTransactionId: transaction.id,
+        bankAccountId: transaction.bankAccountId,
+        movementType,
+        movementId,
+        settlementAmount: statementAmount,
+        previousAmount,
+        resultingAmount: target,
+        previousStatus: current.status,
+        resultingStatus: "pago",
+        previousPaymentDate: current.paymentDate,
+        paymentDate,
+        settledBy: auth.email,
+      };
+      const auditValues = {
+        statementTransactionId: transaction.id,
+        bankAccountId: transaction.bankAccountId,
+        movementType,
+        movementId,
+        action: "settle",
+        amount: statementAmount,
+        previousAmount,
+        resultingAmount: target,
+        previousStatus: current.status,
+        resultingStatus: "pago",
+        paymentDate,
+        performedBy: auth.email,
+      };
+      await db.batch([
+        db.insert(treasuryReconciliationSettlements).values(settlementValues),
+        db.insert(treasuryReconciliationAudit).values(auditValues),
+        db.update(payables).set({ paidAmount: target, paymentDate, status: "pago", updatedAt: now }).where(eq(payables.id, current.id)),
+        db.update(treasuryStatementTransactions).set({
+          matchedMovementType: movementType,
+          matchedMovementId: movementId,
+          matchedAt: now,
+          matchedBy: auth.email,
+          matchMethod: "settle",
+          updatedAt: now,
+        }).where(eq(treasuryStatementTransactions.id, transaction.id)),
+        allocationQuery,
+      ]);
+      return Response.json({ settled: true, amount: statementAmount, paymentDate, status: "pago" });
+    }
+
+    return Response.json({ error: "Tipo de movimento não suportado para baixa assistida." }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error && /UNIQUE/i.test(error.message)
+      ? "Este lançamento ou título já possui uma conciliação/baixa ativa. Atualize a tela e revise os vínculos."
+      : "Não foi possível atualizar a conciliação.";
+    return Response.json({ error: message }, { status: 500 });
   }
 }
