@@ -78,6 +78,52 @@ export async function ensureTreasuryTables() {
   await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_statement_external ON treasury_statement_transactions(import_id, external_id)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_statement_transaction_account_date ON treasury_statement_transactions(bank_account_id, transaction_date)`));
   await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_statement_matched_movement ON treasury_statement_transactions(matched_movement_type, matched_movement_id)`));
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_reconciliation_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      statement_transaction_id INTEGER NOT NULL,
+      bank_account_id INTEGER NOT NULL,
+      movement_type TEXT NOT NULL,
+      movement_id INTEGER NOT NULL,
+      settlement_amount REAL NOT NULL,
+      previous_amount REAL NOT NULL,
+      resulting_amount REAL NOT NULL,
+      previous_status TEXT NOT NULL,
+      resulting_status TEXT NOT NULL,
+      previous_payment_date TEXT,
+      payment_date TEXT NOT NULL,
+      settled_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (statement_transaction_id) REFERENCES treasury_statement_transactions(id) ON DELETE CASCADE,
+      FOREIGN KEY (bank_account_id) REFERENCES treasury_bank_accounts(id) ON DELETE CASCADE
+    )
+  `));
+  await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_active_settlement_transaction ON treasury_reconciliation_settlements(statement_transaction_id)`));
+  await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_active_settlement_movement ON treasury_reconciliation_settlements(movement_type, movement_id)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_active_settlement_account ON treasury_reconciliation_settlements(bank_account_id, created_at)`));
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_reconciliation_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      statement_transaction_id INTEGER NOT NULL,
+      bank_account_id INTEGER NOT NULL,
+      movement_type TEXT NOT NULL,
+      movement_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      amount REAL NOT NULL,
+      previous_amount REAL NOT NULL,
+      resulting_amount REAL NOT NULL,
+      previous_status TEXT NOT NULL,
+      resulting_status TEXT NOT NULL,
+      payment_date TEXT NOT NULL,
+      performed_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (statement_transaction_id) REFERENCES treasury_statement_transactions(id) ON DELETE CASCADE,
+      FOREIGN KEY (bank_account_id) REFERENCES treasury_bank_accounts(id) ON DELETE CASCADE
+    )
+  `));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_reconciliation_audit_transaction ON treasury_reconciliation_audit(statement_transaction_id, created_at)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_reconciliation_audit_movement ON treasury_reconciliation_audit(movement_type, movement_id)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_reconciliation_audit_account ON treasury_reconciliation_audit(bank_account_id, created_at)`));
 }
 
 export async function requireTreasuryAccess() {
