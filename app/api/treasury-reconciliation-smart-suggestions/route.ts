@@ -1,5 +1,6 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { ensureTreasuryTables, requireTreasuryAccess } from "@/app/treasury-runtime";
+import { loadTreasuryLearningPatterns, treasuryLearningBoost } from "@/app/treasury-reconciliation-learning";
 import { getDb } from "@/db";
 import { billings, payables, receivables, sales, suppliers } from "@/db/schema";
 import {
@@ -32,6 +33,9 @@ type Ranked = Candidate & {
   relevance: number;
   textScore: number;
   dateDiff: number | null;
+  historyScore: number;
+  historyMatches: number;
+  historyStrongMatches: number;
 };
 
 const normalize = (value: unknown) => String(value ?? "")
@@ -212,6 +216,8 @@ function buildSuggestions(target: number, ranked: Ranked[]) {
     if (sameCounterpart && items.length > 1) reasons.push("títulos do mesmo cliente/fornecedor");
     if (items.some((item) => item.textScore >= 8)) reasons.push("nome/documento compatível com o histórico bancário");
     if (items.every((item) => item.dateDiff !== null && item.dateDiff <= 15)) reasons.push("vencimentos próximos à data do banco");
+    if (items.some((item) => item.historyScore >= 8)) reasons.push("padrão semelhante já foi confirmado em conciliações anteriores");
+    if (items.some((item) => item.historyMatches >= 3)) reasons.push("histórico recorrente deste cliente/fornecedor nesta conta");
     combos.push({ items, total, score, difference, type: exact ? "exact" : "near", reasons });
   };
 
@@ -230,14 +236,18 @@ function buildSuggestions(target: number, ranked: Ranked[]) {
   for (const item of pool) {
     if (item.availableAmount <= target + 0.01) continue;
     const strongIdentity = item.textScore >= 8;
+    const learnedIdentity = item.historyScore >= 8;
     const closeDate = item.dateDiff !== null && item.dateDiff <= 7;
-    if (!strongIdentity && !closeDate) continue;
+    if (!strongIdentity && !learnedIdentity && !closeDate) continue;
     let score = 64 + Math.min(20, item.relevance * 0.45);
     if (strongIdentity) score += 6;
+    if (learnedIdentity) score += Math.min(5, item.historyScore * 0.2);
     const reasons = ["valor compatível com pagamento parcial"];
     if (strongIdentity) reasons.push("cliente/fornecedor identificado no histórico bancário");
+    if (learnedIdentity) reasons.push("padrão semelhante já foi confirmado em conciliações anteriores");
+    if (item.historyMatches >= 3) reasons.push("histórico recorrente deste cliente/fornecedor nesta conta");
     if (closeDate) reasons.push("data próxima ao vencimento");
-    combos.push({ items: [item], total: target, score: Math.min(89, score), difference: 0, type: "partial", reasons });
+    combos.push({ items: [item], total: target, score: Math.min(92, score), difference: 0, type: "partial", reasons });
   }
 
   const deduped = new Map<string, Combo>();
@@ -269,6 +279,8 @@ function buildSuggestions(target: number, ranked: Ranked[]) {
         date: item.date,
         amount: Number((combo.type === "partial" ? target : item.availableAmount).toFixed(2)),
         availableAmount: Number(item.availableAmount.toFixed(2)),
+        historyScore: Number(item.historyScore.toFixed(1)),
+        historyMatches: item.historyMatches,
       })),
     }));
 }
@@ -284,10 +296,11 @@ export async function GET(request: Request) {
     const [account] = await db.select().from(treasuryBankAccounts).where(eq(treasuryBankAccounts.id, bankAccountId)).limit(1);
     if (!account) return Response.json({ error: "Conta bancária não encontrada." }, { status: 404 });
 
-    const [transactions, candidates, allocations] = await Promise.all([
+    const [transactions, candidates, allocations, learning] = await Promise.all([
       db.select().from(treasuryStatementTransactions).where(eq(treasuryStatementTransactions.bankAccountId, bankAccountId)).orderBy(desc(treasuryStatementTransactions.transactionDate), desc(treasuryStatementTransactions.id)).limit(400),
       loadCandidates(),
       db.select().from(treasuryReconciliationAllocations),
+      loadTreasuryLearningPatterns(bankAccountId),
     ]);
 
     const allocationsByTransaction = new Map<number, typeof allocations>();
@@ -307,7 +320,7 @@ export async function GET(request: Request) {
       const unallocatedAmount = Math.max(0, statementAmount - allocatedAmount);
       const currentKeys = new Set(currentAllocations.map((item) => `${item.movementType}:${item.movementId}`));
       const bankText = `${transaction.description} ${transaction.memo ?? ""} ${transaction.document ?? ""}`;
-      const direction = transaction.amount >= 0 ? "inflow" : "outflow";
+      const direction: "inflow" | "outflow" = transaction.amount >= 0 ? "inflow" : "outflow";
       const ranked = candidates
         .filter((candidate) => candidate.direction === direction)
         .filter((candidate) => !currentKeys.has(candidate.key))
@@ -317,11 +330,21 @@ export async function GET(request: Request) {
           const availableAmount = Math.min(candidate.remainingAmount, Math.max(0, candidate.totalAmount - allocated));
           const textScore = textAffinity(bankText, candidate);
           const dateDiff = dateDistance(transaction.transactionDate, candidate.date);
-          const relevance = textScore + dateAffinity(dateDiff) + (candidate.bankAccountId === bankAccountId ? 4 : 0);
-          return { ...candidate, availableAmount, textScore, dateDiff, relevance };
+          const history = treasuryLearningBoost(bankText, candidate.counterpart, direction, learning.patterns);
+          const relevance = textScore + dateAffinity(dateDiff) + (candidate.bankAccountId === bankAccountId ? 4 : 0) + history.score;
+          return {
+            ...candidate,
+            availableAmount,
+            textScore,
+            dateDiff,
+            relevance,
+            historyScore: history.score,
+            historyMatches: history.matches,
+            historyStrongMatches: history.strongMatches,
+          };
         })
         .filter((candidate) => candidate.availableAmount > 0.009)
-        .filter((candidate) => candidate.textScore > 0 || candidate.dateDiff === null || candidate.dateDiff <= 60)
+        .filter((candidate) => candidate.textScore > 0 || candidate.historyScore > 0 || candidate.dateDiff === null || candidate.dateDiff <= 60)
         .sort((a, b) => b.relevance - a.relevance || (a.dateDiff ?? 999) - (b.dateDiff ?? 999) || (a.date ?? "9999").localeCompare(b.date ?? "9999"));
 
       const legacyMatched = Boolean(transaction.matchedMovementType && transaction.matchedMovementId && !currentAllocations.length);
@@ -346,6 +369,10 @@ export async function GET(request: Request) {
       highConfidence: rows.filter((item) => item.suggestions.some((suggestion) => suggestion.confidence === "alta")).length,
       exactMatches: rows.filter((item) => item.suggestions.some((suggestion) => suggestion.type === "exact")).length,
       partialMatches: rows.filter((item) => item.suggestions.some((suggestion) => suggestion.type === "partial")).length,
+      learnedConfirmations: learning.confirmations,
+      learnedCounterparts: learning.counterparts,
+      settledConfirmations: learning.settledConfirmations,
+      historyBoosted: rows.filter((item) => item.suggestions.some((suggestion) => suggestion.items.some((candidate) => candidate.historyMatches > 0))).length,
     } });
   } catch (error) {
     console.error("treasury smart suggestions", error);
