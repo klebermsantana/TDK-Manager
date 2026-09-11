@@ -120,3 +120,50 @@ export const treasuryAlertSettings = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
 );
+
+export const treasuryAlertOccurrences = sqliteTable(
+  "treasury_alert_occurrences",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    alertKey: text("alert_key").notNull(),
+    alertType: text("alert_type").notNull(),
+    severity: text("severity").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    bankAccountId: integer("bank_account_id").references(() => treasuryBankAccounts.id, { onDelete: "set null" }),
+    accountName: text("account_name").notNull(),
+    amount: real("amount").notNull().default(0),
+    metric: real("metric"),
+    status: text("status").notNull().default("active"),
+    firstSeenAt: text("first_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    acknowledgedBy: text("acknowledged_by"),
+    acknowledgedAt: text("acknowledged_at"),
+    acknowledgementNote: text("acknowledgement_note"),
+    resolvedAt: text("resolved_at"),
+    resolutionReason: text("resolution_reason"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_alert_occurrence_key_status").on(table.alertKey, table.status),
+    index("idx_treasury_alert_occurrence_status_severity").on(table.status, table.severity),
+    index("idx_treasury_alert_occurrence_first_seen").on(table.firstSeenAt),
+  ],
+);
+
+export const treasuryAlertOccurrenceAudit = sqliteTable(
+  "treasury_alert_occurrence_audit",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurrenceId: integer("occurrence_id").notNull().references(() => treasuryAlertOccurrences.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    performedBy: text("performed_by").notNull(),
+    note: text("note"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_alert_occurrence_audit_occurrence").on(table.occurrenceId, table.createdAt),
+  ],
+);
