@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import {
@@ -147,8 +147,9 @@ export async function saveTreasuryAlertAssignmentRule(args: {
   const db = getDb();
   let user: typeof users.$inferSelect | null = null;
   if (args.userId !== null) {
-    [user] = await db.select().from(users).where(eq(users.id, args.userId)).limit(1);
-    if (!user || !hasTreasuryAccessCandidate(user)) throw new Error("O usuário selecionado não possui acesso ativo à Tesouraria.");
+    const [candidate] = await db.select().from(users).where(eq(users.id, args.userId)).limit(1);
+    if (!candidate || !hasTreasuryAccessCandidate(candidate)) throw new Error("O usuário selecionado não possui acesso ativo à Tesouraria.");
+    user = candidate;
   }
   const now = new Date().toISOString();
   const [existing] = await db.select().from(treasuryAlertAssignmentRules)
@@ -178,6 +179,6 @@ export async function saveTreasuryAlertAssignmentRule(args: {
 
 export async function listTreasuryAlertAssignmentHistory(limit = 200) {
   return getDb().select().from(treasuryAlertAssignmentHistory)
-    .orderBy(asc(treasuryAlertAssignmentHistory.occurrenceId), asc(treasuryAlertAssignmentHistory.assignedAt))
+    .orderBy(desc(treasuryAlertAssignmentHistory.assignedAt), desc(treasuryAlertAssignmentHistory.id))
     .limit(limit);
 }
