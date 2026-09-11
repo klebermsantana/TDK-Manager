@@ -11,6 +11,7 @@ export default defineConfig({
     "./db/treasury-closing-schema.ts",
     "./db/treasury-routing-schema.ts",
     "./db/treasury-capacity-routing-schema.ts",
+    "./db/service-technician-schema.ts",
   ],
   dialect: "sqlite",
 });
