@@ -8,6 +8,7 @@ import * as treasurySchema from "./treasury-schema";
 import * as treasuryClosingSchema from "./treasury-closing-schema";
 import * as treasuryRoutingSchema from "./treasury-routing-schema";
 import * as serviceTechnicianSchema from "./service-technician-schema";
+import * as serviceTechnicianSettlementSchema from "./service-technician-settlement-schema";
 
 const schema = {
   ...coreSchema,
@@ -18,6 +19,7 @@ const schema = {
   ...treasuryClosingSchema,
   ...treasuryRoutingSchema,
   ...serviceTechnicianSchema,
+  ...serviceTechnicianSettlementSchema,
 };
 
 export function getDb() {
