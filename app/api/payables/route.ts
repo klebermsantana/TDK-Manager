@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { ensureFinancialLedger, isDateKey, ledgerSourceKey, todaySaoPaulo } from "@/app/financial-ledger";
+import { movementClosedPeriodResponse } from "@/app/treasury-closing-lock";
 import { getDb } from "@/db";
 import { companies, payables, suppliers } from "@/db/schema";
 import { treasuryFinancialEvents, treasuryMovementAccounts } from "@/db/treasury-schema";
@@ -127,6 +128,12 @@ export async function PATCH(request: Request) {
       ? null
       : explicitDate ?? (delta > 0.009 ? eventDate : current.paymentDate ?? eventDate);
     const now = new Date().toISOString();
+
+    if (Math.abs(delta) > 0.009) {
+      const locked = await movementClosedPeriodResponse("payable", current.id, eventDate, delta > 0 ? "registrar este pagamento" : "estornar ou ajustar este pagamento");
+      if (locked) return locked;
+    }
+
     const movementAccounts = await db.select().from(treasuryMovementAccounts);
     const bankAccountId = movementAccounts.find((item) => item.movementType === "payable" && item.movementId === current.id)?.bankAccountId ?? null;
 
