@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+type RealizedEvent = { id: number; eventDate: string; amount: number; eventType: string; source: string };
 type Movement = {
   id: string;
   type: "inflow" | "outflow";
@@ -14,6 +15,7 @@ type Movement = {
   scheduledAmount: number;
   realizedAmount: number;
   paymentDate: string | null;
+  realizedEvents: RealizedEvent[];
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -26,6 +28,7 @@ type Payload = {
     billingsWithoutDueDate: number;
     receivedWithoutPaymentDate: number;
     paidWithoutPaymentDate: number;
+    legacySnapshotEvents: number;
   };
 };
 
@@ -78,6 +81,14 @@ function futureMonths(count: number) {
 
 function tone(value: number) {
   return value < 0 ? "danger" : value > 0 ? "good" : "";
+}
+
+function realizedInMonth(movements: Movement[], type: "inflow" | "outflow", month: string) {
+  return movements
+    .filter((item) => item.type === type)
+    .reduce((total, item) => total + item.realizedEvents
+      .filter((event) => event.eventDate.startsWith(month))
+      .reduce((sum, event) => sum + Number(event.amount), 0), 0);
 }
 
 export function NetCashFlowDashboard() {
@@ -146,12 +157,8 @@ export function NetCashFlowDashboard() {
     const projectedOutflow = horizonOutflows.reduce((sum, item) => sum + item.scheduledAmount, 0);
     const overdueReceivables = overdueInflows.reduce((sum, item) => sum + item.scheduledAmount, 0);
     const overduePayables = overdueOutflows.reduce((sum, item) => sum + item.scheduledAmount, 0);
-    const realizedInflow = movements
-      .filter((item) => item.type === "inflow" && item.paymentDate?.startsWith(currentMonth))
-      .reduce((sum, item) => sum + item.realizedAmount, 0);
-    const realizedOutflow = movements
-      .filter((item) => item.type === "outflow" && item.paymentDate?.startsWith(currentMonth))
-      .reduce((sum, item) => sum + item.realizedAmount, 0);
+    const realizedInflow = realizedInMonth(movements, "inflow", currentMonth);
+    const realizedOutflow = realizedInMonth(movements, "outflow", currentMonth);
 
     return {
       projectedInflow,
@@ -277,7 +284,7 @@ export function NetCashFlowDashboard() {
           <article className={cashNeed > 0 ? "danger" : "good"}><span>Necessidade acumulada</span><strong>{money(cashNeed)}</strong><small>{cashNeed > 0 ? "pico de caixa necessário para cobrir saídas" : "sem déficit acumulado no cenário"}</small></article>
           <article className={summary.overdueReceivables > 0 ? "warning" : "good"}><span>Recebíveis vencidos</span><strong>{money(summary.overdueReceivables)}</strong><small>{summary.overdueReceivableCount} título(s) fora da projeção de entrada</small></article>
           <article className={summary.overduePayables > 0 ? "danger" : "good"}><span>Pagamentos vencidos</span><strong>{money(summary.overduePayables)}</strong><small>{summary.overduePayableCount} obrigação(ões) tratada(s) como imediatas</small></article>
-          <article className={tone(summary.realizedNet)}><span>Realizado líquido no mês</span><strong>{money(summary.realizedNet)}</strong><small>{money(summary.realizedInflow)} entrou · {money(summary.realizedOutflow)} saiu</small></article>
+          <article className={tone(summary.realizedNet)}><span>Realizado líquido no mês</span><strong>{money(summary.realizedNet)}</strong><small>{money(summary.realizedInflow)} entrou · {money(summary.realizedOutflow)} saiu · razão por eventos</small></article>
           <article className={qualityIssues ? "warning" : "good"}><span>Qualidade dos dados</span><strong>{qualityIssues}</strong><small>pendência(s) que podem afetar a leitura</small></article>
         </div>
 
@@ -311,8 +318,9 @@ export function NetCashFlowDashboard() {
               <span>Faturamentos sem vencimento <b>{payload?.dataQuality.billingsWithoutDueDate ?? 0}</b></span>
               <span>Recebimentos sem data <b>{payload?.dataQuality.receivedWithoutPaymentDate ?? 0}</b></span>
               <span>Pagamentos sem data <b>{payload?.dataQuality.paidWithoutPaymentDate ?? 0}</b></span>
+              <span>Snapshots legados no razão <b>{payload?.dataQuality.legacySnapshotEvents ?? 0}</b></span>
             </div>
-            <p className="net-cash-note">O acumulado parte de zero e representa somente a movimentação líquida prevista. Ele ainda não é saldo bancário. Para isso, numa próxima etapa, podemos integrar saldo inicial e contas bancárias.</p>
+            <p className="net-cash-note">O acumulado desta tela parte de zero e representa somente a movimentação líquida prevista. O saldo bancário projetado por conta e consolidado permanece disponível na Tesouraria. O realizado mensal agora é calculado pelo razão financeiro, preservando pagamentos parciais e estornos por data.</p>
           </section>
         </div>
       </section>
