@@ -20,6 +20,13 @@ type Alert = {
   acknowledgedBy: string | null;
   acknowledgedAt: string | null;
   acknowledgementNote: string | null;
+  ackEscalatedAt: string | null;
+  resolutionEscalatedAt: string | null;
+  escalationStage: "ack_overdue" | "resolution_overdue" | null;
+  ackDueAt: string;
+  resolutionDueAt: string | null;
+  slaDueAt: string | null;
+  slaRemainingMinutes: number | null;
 };
 
 type AlertOccurrence = {
@@ -40,6 +47,8 @@ type AlertOccurrence = {
   acknowledgedBy: string | null;
   acknowledgedAt: string | null;
   acknowledgementNote: string | null;
+  ackEscalatedAt: string | null;
+  resolutionEscalatedAt: string | null;
   resolvedAt: string | null;
   resolutionReason: "condition_cleared" | "monitoring_disabled" | null;
 };
@@ -53,6 +62,10 @@ type Settings = {
   criticalTasksEnabled: boolean;
   reconciliationEnabled: boolean;
   closingOverdueEnabled: boolean;
+  escalationEnabled: boolean;
+  criticalAckSlaMinutes: number;
+  highAckSlaMinutes: number;
+  resolutionSlaMinutes: number;
   updatedBy: string | null;
   updatedAt: string;
 };
@@ -63,12 +76,24 @@ type Payload = {
   settings: Settings;
   alerts: Alert[];
   history: AlertOccurrence[];
+  slaMetrics: {
+    sampleSize: number;
+    mttaMinutes: number | null;
+    mttrMinutes: number | null;
+    acknowledgementSamples: number;
+    normalizationSamples: number;
+    ackSlaBreaches: number;
+    resolutionSlaBreaches: number;
+  };
   summary: {
     total: number;
     critical: number;
     high: number;
     acknowledged: number;
     unacknowledged: number;
+    escalated: number;
+    ackOverdue: number;
+    resolutionOverdue: number;
     negativeForecast: number;
     criticalTasks: number;
     reconciliation: number;
@@ -91,12 +116,27 @@ const severityLabel = { critical: "Crítico", high: "Alto", medium: "Médio" } a
 function durationLabel(start: string, end?: string | null) {
   const startMs = new Date(start).getTime();
   const endMs = end ? new Date(end).getTime() : Date.now();
-  const minutes = Math.max(0, Math.floor((endMs - startMs) / 60000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} h`;
+  return minutesLabel(Math.max(0, Math.floor((endMs - startMs) / 60000)));
+}
+
+function minutesLabel(minutes: number | null) {
+  if (minutes === null || !Number.isFinite(minutes)) return "—";
+  const absolute = Math.max(0, Math.round(Math.abs(minutes)));
+  if (absolute < 60) return `${absolute} min`;
+  const hours = Math.floor(absolute / 60);
+  const rest = absolute % 60;
+  if (hours < 48) return rest ? `${hours}h ${rest}min` : `${hours} h`;
   const days = Math.floor(hours / 24);
   return `${days} d`;
+}
+
+function slaLabel(alert: Alert) {
+  if (alert.escalationStage === "ack_overdue") return `SLA de ciência vencido há ${minutesLabel(alert.slaRemainingMinutes)}`;
+  if (alert.escalationStage === "resolution_overdue") return `SLA operacional vencido há ${minutesLabel(alert.slaRemainingMinutes)}`;
+  if (alert.slaRemainingMinutes === null) return "Sem prazo calculado";
+  return alert.acknowledgedAt
+    ? `Normalização em até ${minutesLabel(alert.slaRemainingMinutes)}`
+    : `Ciência em até ${minutesLabel(alert.slaRemainingMinutes)}`;
 }
 
 export function TreasuryExecutiveAlerts() {
@@ -108,7 +148,7 @@ export function TreasuryExecutiveAlerts() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [filter, setFilter] = useState<"all" | "critical" | "high">("all");
+  const [filter, setFilter] = useState<"all" | "critical" | "high" | "escalated">("all");
   const [historyFilter, setHistoryFilter] = useState<"all" | "active" | "resolved">("all");
 
   useEffect(() => {
@@ -166,7 +206,7 @@ export function TreasuryExecutiveAlerts() {
         setMessage(result.error ?? "Não foi possível salvar as regras de alerta.");
         return;
       }
-      setMessage("Regras de alerta atualizadas.");
+      setMessage("Regras de alerta e SLA atualizadas.");
       await refresh(true);
     } finally {
       setSaving(false);
@@ -210,21 +250,26 @@ export function TreasuryExecutiveAlerts() {
     }, 0);
   }
 
-  const visibleAlerts = useMemo(() => (payload?.alerts ?? []).filter((alert) => filter === "all" || alert.severity === filter), [payload, filter]);
+  const visibleAlerts = useMemo(() => (payload?.alerts ?? []).filter((alert) => {
+    if (filter === "all") return true;
+    if (filter === "escalated") return Boolean(alert.escalationStage);
+    return alert.severity === filter;
+  }), [payload, filter]);
   const historyRows = useMemo(() => (payload?.history ?? [])
     .filter((row) => historyFilter === "all" || row.status === historyFilter)
     .slice(0, 50), [payload, historyFilter]);
 
   if (!target || authorized === false) return null;
   const summary = payload?.summary;
-  const tone = summary?.critical ? "critical" : summary?.high ? "high" : "clear";
+  const slaMetrics = payload?.slaMetrics;
+  const tone = summary?.escalated || summary?.critical ? "critical" : summary?.high ? "high" : "clear";
 
   return <>
     {createPortal(
       <button type="button" className={`treasury-alerts-trigger ${tone}`} onClick={() => setOpen(true)} disabled={authorized === null}>
         <span>ALERTAS</span>
         <strong>{summary?.total ?? "—"}</strong>
-        <small>{summary?.critical ? `${summary.critical} crítico(s)` : summary?.high ? `${summary.high} alto(s)` : "tesouraria monitorada"}</small>
+        <small>{summary?.escalated ? `${summary.escalated} escalonado(s)` : summary?.critical ? `${summary.critical} crítico(s)` : summary?.high ? `${summary.high} alto(s)` : "tesouraria monitorada"}</small>
       </button>,
       target,
     )}
@@ -235,7 +280,7 @@ export function TreasuryExecutiveAlerts() {
           <div>
             <small>FINANCEIRO · MONITORAMENTO</small>
             <h2>Alertas executivos da Tesouraria</h2>
-            <p>Regras explicáveis com ciclo de vida auditável: detecção, ciência, duração e normalização. Reconhecer um alerta não o resolve nem reduz sua gravidade.</p>
+            <p>Monitoramento com SLA de ciência e normalização, escalonamento persistente e ciclo de vida auditável. Reconhecer um alerta registra ciência, mas não o resolve nem reduz sua gravidade.</p>
           </div>
           <div className="treasury-alerts-actions">
             <button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Atualizando…" : "Recalcular"}</button>
@@ -247,39 +292,51 @@ export function TreasuryExecutiveAlerts() {
 
         <div className="treasury-alerts-kpis">
           <article className={summary?.critical ? "danger" : "good"}><span>Alertas ativos</span><strong>{summary?.total ?? 0}</strong><small>{summary?.critical ?? 0} crítico(s)</small></article>
+          <article className={summary?.escalated ? "danger" : "good"}><span>Em escalonamento</span><strong>{summary?.escalated ?? 0}</strong><small>{summary?.ackOverdue ?? 0} ciência · {summary?.resolutionOverdue ?? 0} normalização</small></article>
           <article className={summary?.unacknowledged ? "warning" : "good"}><span>Sem ciência</span><strong>{summary?.unacknowledged ?? 0}</strong><small>{summary?.acknowledged ?? 0} já reconhecido(s)</small></article>
+          <article><span>MTTA · ciência</span><strong>{minutesLabel(slaMetrics?.mttaMinutes ?? null)}</strong><small>{slaMetrics?.acknowledgementSamples ?? 0} ocorrência(s) com ciência</small></article>
+          <article><span>MTTR · normalização</span><strong>{minutesLabel(slaMetrics?.mttrMinutes ?? null)}</strong><small>{slaMetrics?.normalizationSamples ?? 0} ocorrência(s) normalizada(s)</small></article>
           <article className={summary?.negativeForecast ? "danger" : "good"}><span>Caixa projetado</span><strong>{summary?.negativeForecast ?? 0}</strong><small>cenários negativos detectados</small></article>
           <article className={summary?.reconciliation ? "warning" : "good"}><span>Conciliação</span><strong>{summary?.reconciliation ?? 0}</strong><small>abaixo do limite configurado</small></article>
           <article className={summary?.closingOverdue ? "warning" : "good"}><span>Fechamentos</span><strong>{summary?.closingOverdue ?? 0}</strong><small>fora da cadência definida</small></article>
-          <article className={summary?.criticalTasks ? "danger" : "good"}><span>Pendências críticas</span><strong>{summary?.criticalTasks ?? 0}</strong><small>causas técnicas ativas</small></article>
-          <article><span>Último cálculo</span><strong>{dateTime(payload?.generatedAt ?? null)}</strong><small>atualização automática: 60 s</small></article>
+          <article><span>Amostra SLA</span><strong>{slaMetrics?.sampleSize ?? 0}</strong><small>últimas ocorrências consideradas</small></article>
         </div>
 
         <div className="treasury-alerts-grid">
           <section className="treasury-alerts-card settings-card">
-            <header><div><small>REGRAS</small><h3>Configuração do monitoramento</h3></div><button type="button" onClick={() => void saveSettings()} disabled={!settings || saving}>{saving ? "Salvando…" : "Salvar regras"}</button></header>
+            <header><div><small>REGRAS + SLA</small><h3>Configuração do monitoramento</h3></div><button type="button" onClick={() => void saveSettings()} disabled={!settings || saving}>{saving ? "Salvando…" : "Salvar regras"}</button></header>
             {settings ? <div className="treasury-alerts-settings">
               <label><span>Horizonte do caixa</span><select value={settings.forecastHorizonDays} onChange={(event) => setSettings({ ...settings, forecastHorizonDays: Number(event.target.value) })}><option value={7}>7 dias</option><option value={30}>30 dias</option><option value={60}>60 dias</option><option value={90}>90 dias</option></select></label>
               <label><span>Conciliação mínima</span><input type="number" min="0" max="100" step="1" value={settings.reconciliationMinPct} onChange={(event) => setSettings({ ...settings, reconciliationMinPct: Number(event.target.value) })} /></label>
               <label><span>Cadência do fechamento</span><select value={settings.closingCadence} onChange={(event) => setSettings({ ...settings, closingCadence: event.target.value as "daily" | "monthly" })}><option value="daily">Diário · último dia útil anterior</option><option value="monthly">Mensal · último dia útil do mês anterior</option></select></label>
+              <label><span>Ciência · crítico (min)</span><input type="number" min="5" max="1440" step="5" value={settings.criticalAckSlaMinutes} onChange={(event) => setSettings({ ...settings, criticalAckSlaMinutes: Number(event.target.value) })} /></label>
+              <label><span>Ciência · alto (min)</span><input type="number" min="5" max="2880" step="5" value={settings.highAckSlaMinutes} onChange={(event) => setSettings({ ...settings, highAckSlaMinutes: Number(event.target.value) })} /></label>
+              <label><span>Normalização após ciência (min)</span><input type="number" min="15" max="10080" step="15" value={settings.resolutionSlaMinutes} onChange={(event) => setSettings({ ...settings, resolutionSlaMinutes: Number(event.target.value) })} /></label>
               <div className="toggles">
+                <label><input type="checkbox" checked={settings.escalationEnabled} onChange={(event) => setSettings({ ...settings, escalationEnabled: event.target.checked })} /><span>SLA e escalonamento automáticos</span></label>
                 <label><input type="checkbox" checked={settings.negativeForecastEnabled} onChange={(event) => setSettings({ ...settings, negativeForecastEnabled: event.target.checked })} /><span>Saldo projetado negativo</span></label>
                 <label><input type="checkbox" checked={settings.criticalTasksEnabled} onChange={(event) => setSettings({ ...settings, criticalTasksEnabled: event.target.checked })} /><span>Pendências críticas</span></label>
                 <label><input type="checkbox" checked={settings.reconciliationEnabled} onChange={(event) => setSettings({ ...settings, reconciliationEnabled: event.target.checked })} /><span>Conciliação abaixo do limite</span></label>
                 <label><input type="checkbox" checked={settings.closingOverdueEnabled} onChange={(event) => setSettings({ ...settings, closingOverdueEnabled: event.target.checked })} /><span>Fechamento atrasado</span></label>
               </div>
-              <p>Feriados ainda não são considerados na cadência; sábados e domingos são ignorados. Desativar uma regra encerra suas ocorrências ativas como “monitoramento desativado”, sem declarar normalização técnica.</p>
+              <p>Os rompimentos de SLA são persistidos no histórico. Desativar o escalonamento interrompe novos escalonamentos, mas não apaga violações já registradas. Feriados ainda não são considerados na cadência de fechamento.</p>
             </div> : null}
           </section>
 
           <section className="treasury-alerts-card status-card">
             <header><div><small>SITUAÇÃO</small><h3>Leitura executiva</h3></div></header>
-            <div className={`treasury-alerts-health ${summary?.critical ? "danger" : summary?.high ? "warning" : "good"}`}>
-              <strong>{summary?.critical ? "Ação imediata" : summary?.high ? "Atenção" : "Monitoramento controlado"}</strong>
-              <p>{summary?.critical ? "Há pelo menos uma condição crítica que pode afetar caixa ou integridade do fechamento." : summary?.high ? "Não há alerta crítico, mas existem condições que precisam de tratamento operacional." : "Nenhuma das regras habilitadas está disparada neste momento."}</p>
+            <div className={`treasury-alerts-health ${summary?.escalated || summary?.critical ? "danger" : summary?.high ? "warning" : "good"}`}>
+              <strong>{summary?.escalated ? "Escalonamento ativo" : summary?.critical ? "Ação imediata" : summary?.high ? "Atenção" : "Monitoramento controlado"}</strong>
+              <p>{summary?.escalated ? `${summary.escalated} alerta(s) ultrapassaram o SLA de ciência ou de normalização e exigem tratamento prioritário.` : summary?.critical ? "Há pelo menos uma condição crítica que pode afetar caixa ou integridade do fechamento." : summary?.high ? "Não há alerta crítico, mas existem condições que precisam de tratamento operacional." : "Nenhuma das regras habilitadas está disparada neste momento."}</p>
+            </div>
+            <div className="sla-summary">
+              <span>Rompimentos na amostra</span>
+              <strong>{slaMetrics?.ackSlaBreaches ?? 0} ciência · {slaMetrics?.resolutionSlaBreaches ?? 0} normalização</strong>
+              <small>MTTA e MTTR usam as últimas {slaMetrics?.sampleSize ?? 0} ocorrências disponíveis.</small>
             </div>
             <div className="treasury-alerts-filter" role="group" aria-label="Filtrar alertas">
               <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos</button>
+              <button type="button" className={filter === "escalated" ? "active" : ""} onClick={() => setFilter("escalated")}>Escalonados</button>
               <button type="button" className={filter === "critical" ? "active" : ""} onClick={() => setFilter("critical")}>Críticos</button>
               <button type="button" className={filter === "high" ? "active" : ""} onClick={() => setFilter("high")}>Altos</button>
             </div>
@@ -288,14 +345,16 @@ export function TreasuryExecutiveAlerts() {
           <section className="treasury-alerts-card wide">
             <header><div><small>CENTRAL DE ALERTAS</small><h3>O que exige atenção</h3></div><strong>{visibleAlerts.length} item(ns)</strong></header>
             <div className="treasury-alerts-list">
-              {visibleAlerts.length ? visibleAlerts.map((alert) => <article key={alert.occurrenceId} className={alert.severity}>
-                <div className="alert-meta"><b>{severityLabel[alert.severity]}</b><span>{typeLabel[alert.type]}</span>{alert.acknowledgedAt ? <i className="ack">Ciente</i> : <i className="unack">Sem ciência</i>}</div>
+              {visibleAlerts.length ? visibleAlerts.map((alert) => <article key={alert.occurrenceId} className={`${alert.severity}${alert.escalationStage ? " escalated" : ""}`}>
+                <div className="alert-meta"><b>{severityLabel[alert.severity]}</b><span>{typeLabel[alert.type]}</span>{alert.escalationStage ? <i className="escalated-badge">{alert.escalationStage === "ack_overdue" ? "SLA ciência" : "SLA normalização"}</i> : alert.acknowledgedAt ? <i className="ack">Ciente</i> : <i className="unack">Sem ciência</i>}</div>
                 <div className="alert-body">
                   <strong>{alert.title}</strong>
                   <small>{alert.accountName}</small>
-                  <div className="alert-timing"><span>Detectado {dateTime(alert.firstSeenAt)}</span><span>Ativo há {durationLabel(alert.firstSeenAt)}</span></div>
+                  <div className="alert-timing"><span>Detectado {dateTime(alert.firstSeenAt)}</span><span>Ativo há {durationLabel(alert.firstSeenAt)}</span><span className={alert.escalationStage ? "sla-overdue" : ""}>{slaLabel(alert)} · prazo {dateTime(alert.slaDueAt)}</span></div>
                   <p>{alert.detail}</p>
                   <em>{alert.action}</em>
+                  {alert.ackEscalatedAt ? <div className="alert-breach"><b>SLA de ciência rompido</b><span>{dateTime(alert.ackEscalatedAt)}</span></div> : null}
+                  {alert.resolutionEscalatedAt ? <div className="alert-breach"><b>SLA de normalização rompido</b><span>{dateTime(alert.resolutionEscalatedAt)}</span></div> : null}
                   {alert.acknowledgedAt ? <div className="alert-ack-detail"><b>Reconhecido por {alert.acknowledgedBy}</b><span>{dateTime(alert.acknowledgedAt)}{alert.acknowledgementNote ? ` · ${alert.acknowledgementNote}` : ""}</span></div> : null}
                 </div>
                 <div className="alert-side">
@@ -304,13 +363,13 @@ export function TreasuryExecutiveAlerts() {
                   {!alert.acknowledgedAt ? <button type="button" className="ack-button" onClick={() => void acknowledge(alert)} disabled={saving}>Reconhecer</button> : null}
                   <button type="button" onClick={() => openSource(alert)}>Abrir origem</button>
                 </div>
-              </article>) : <div className="treasury-alerts-empty"><strong>Nenhum alerta ativo.</strong><p>As regras habilitadas estão dentro dos limites configurados neste momento.</p></div>}
+              </article>) : <div className="treasury-alerts-empty"><strong>Nenhum alerta neste filtro.</strong><p>As regras habilitadas não possuem ocorrências correspondentes neste momento.</p></div>}
             </div>
           </section>
 
           <section className="treasury-alerts-card wide history-card">
             <header>
-              <div><small>HISTÓRICO AUDITÁVEL</small><h3>Ciclo de vida das ocorrências</h3></div>
+              <div><small>HISTÓRICO AUDITÁVEL</small><h3>Ciclo de vida + SLA das ocorrências</h3></div>
               <div className="treasury-alerts-filter history-filter" role="group" aria-label="Filtrar histórico">
                 <button type="button" className={historyFilter === "all" ? "active" : ""} onClick={() => setHistoryFilter("all")}>Todos</button>
                 <button type="button" className={historyFilter === "active" ? "active" : ""} onClick={() => setHistoryFilter("active")}>Ativos</button>
@@ -318,27 +377,30 @@ export function TreasuryExecutiveAlerts() {
               </div>
             </header>
             <div className="treasury-alerts-history">
-              {historyRows.length ? historyRows.map((row) => <article key={row.id} className={`${row.status} ${row.severity}`}>
+              {historyRows.length ? historyRows.map((row) => <article key={row.id} className={`${row.status} ${row.severity}${row.ackEscalatedAt || row.resolutionEscalatedAt ? " breached" : ""}`}>
                 <div className="history-status">
                   <b>{row.status === "active" ? "Ativo" : row.resolutionReason === "monitoring_disabled" ? "Monitoramento desativado" : "Normalizado"}</b>
                   <span>{severityLabel[row.severity]} · {typeLabel[row.alertType]}</span>
+                  {row.ackEscalatedAt || row.resolutionEscalatedAt ? <i>SLA rompido</i> : null}
                 </div>
                 <div className="history-main">
                   <strong>{row.title}</strong>
                   <small>{row.accountName}</small>
                   <p>Início: {dateTime(row.firstSeenAt)} · Última detecção: {dateTime(row.lastSeenAt)} · Duração: {durationLabel(row.firstSeenAt, row.resolvedAt)}</p>
                   {row.acknowledgedAt ? <em>Ciência: {row.acknowledgedBy} em {dateTime(row.acknowledgedAt)}{row.acknowledgementNote ? ` · ${row.acknowledgementNote}` : ""}</em> : <em>Sem registro de ciência.</em>}
+                  {row.ackEscalatedAt ? <em className="history-breach">SLA de ciência rompido em {dateTime(row.ackEscalatedAt)}.</em> : null}
+                  {row.resolutionEscalatedAt ? <em className="history-breach">SLA de normalização rompido em {dateTime(row.resolutionEscalatedAt)}.</em> : null}
                 </div>
                 <div className="history-end">
                   {row.status === "resolved" ? <><span>Encerrado</span><strong>{dateTime(row.resolvedAt)}</strong></> : <><span>Em acompanhamento</span><strong>{durationLabel(row.firstSeenAt)}</strong></>}
                 </div>
-              </article>) : <div className="treasury-alerts-empty"><strong>Sem ocorrências neste filtro.</strong><p>O histórico começa a ser formado a partir desta versão.</p></div>}
+              </article>) : <div className="treasury-alerts-empty"><strong>Sem ocorrências neste filtro.</strong><p>O histórico de SLA será formado automaticamente conforme os alertas forem detectados.</p></div>}
             </div>
           </section>
         </div>
 
         <footer className="treasury-alerts-footer">
-          <span>Reconhecimento registra ciência; somente a normalização da causa encerra o alerta. Nenhuma ação financeira é executada automaticamente.</span>
+          <span>Escalonamento aumenta a prioridade operacional; não executa baixa, conciliação, transferência ou fechamento automaticamente.</span>
           <span>{settings?.updatedBy ? `Regras atualizadas por ${settings.updatedBy} em ${dateTime(settings.updatedAt)}.` : "Regras padrão ativas."}</span>
         </footer>
       </section>
