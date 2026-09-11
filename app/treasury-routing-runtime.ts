@@ -1,15 +1,19 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { todaySaoPaulo } from "@/app/financial-ledger";
 import { getDb } from "@/db";
 import {
   treasuryRoutingProfileAudit,
   treasuryRoutingProfiles,
+  treasuryRoutingScheduleAudit,
+  treasuryRoutingSchedules,
   treasuryRoutingSkills,
 } from "@/db/treasury-routing-schema";
 
 export const treasuryRoutingDomains = ["cash", "critical_tasks", "reconciliation", "closing"] as const;
 export type TreasuryRoutingDomain = (typeof treasuryRoutingDomains)[number];
 export type TreasuryAvailability = "available" | "limited" | "unavailable";
+export const treasuryScheduleTypes = ["vacation", "day_off", "reduced_hours", "temporary_unavailability"] as const;
+export type TreasuryScheduleType = (typeof treasuryScheduleTypes)[number];
 
 export const treasuryRoutingDomainLabels: Record<TreasuryRoutingDomain, string> = {
   cash: "Caixa",
@@ -25,6 +29,13 @@ export const treasurySkillLabels: Record<number, string> = {
   3: "Especialista",
 };
 
+export const treasuryScheduleTypeLabels: Record<TreasuryScheduleType, string> = {
+  vacation: "Férias",
+  day_off: "Folga",
+  reduced_hours: "Horário reduzido",
+  temporary_unavailability: "Indisponibilidade temporária",
+};
+
 export function routingDomainForAlertType(alertType: string): TreasuryRoutingDomain {
   if (alertType === "negative_forecast") return "cash";
   if (alertType === "reconciliation") return "reconciliation";
@@ -36,6 +47,44 @@ export function routingDomainForTaskIssueType(issueType: string): TreasuryRoutin
   if (["statement_missing", "statement_outdated", "unallocated_statement", "ledger_unassigned"].includes(issueType)) return "reconciliation";
   if (["balance_difference", "base_anchor", "statement_balance_missing"].includes(issueType)) return "closing";
   return "critical_tasks";
+}
+
+function saoPauloClock(at = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const values = Object.fromEntries(formatter.formatToParts(at).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
+}
+
+function availabilityRank(value: TreasuryAvailability) {
+  return value === "unavailable" ? 2 : value === "limited" ? 1 : 0;
+}
+
+function strongestAvailability(a: TreasuryAvailability, b: TreasuryAvailability): TreasuryAvailability {
+  return availabilityRank(a) >= availabilityRank(b) ? a : b;
+}
+
+function withinDailyWindow(time: string, start: string, end: string) {
+  if (start <= end) return time >= start && time <= end;
+  return time >= start || time <= end;
+}
+
+function scheduleEffectiveAvailability(schedule: typeof treasuryRoutingSchedules.$inferSelect, localTime: string): TreasuryAvailability {
+  if (schedule.scheduleType === "reduced_hours") {
+    if (!schedule.startTime || !schedule.endTime) return "limited";
+    return withinDailyWindow(localTime, schedule.startTime, schedule.endTime) ? "limited" : "unavailable";
+  }
+  return "unavailable";
 }
 
 export async function ensureTreasuryRoutingTables() {
@@ -84,6 +133,47 @@ export async function ensureTreasuryRoutingTables() {
     )
   `));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_profile_audit_user ON treasury_routing_profile_audit(user_id, created_at)`));
+
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_routing_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      schedule_type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      coverage_user_id INTEGER,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL,
+      updated_by TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (coverage_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_schedule_user_dates ON treasury_routing_schedules(user_id, start_date, end_date)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_schedule_active_dates ON treasury_routing_schedules(active, start_date, end_date)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_schedule_coverage ON treasury_routing_schedules(coverage_user_id, active)`));
+
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_routing_schedule_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schedule_id INTEGER,
+      user_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      before_json TEXT,
+      after_json TEXT,
+      performed_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (schedule_id) REFERENCES treasury_routing_schedules(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_schedule_audit_schedule ON treasury_routing_schedule_audit(schedule_id, created_at)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_routing_schedule_audit_user ON treasury_routing_schedule_audit(user_id, created_at)`));
 }
 
 export async function ensureTreasuryRoutingUsers(users: Array<{ id: number }>) {
@@ -135,7 +225,26 @@ export async function normalizeExpiredTreasuryAvailability() {
   }
 }
 
-export async function getTreasuryRoutingSnapshot(userId: number) {
+async function effectiveScheduleForUser(userId: number, at = new Date()) {
+  await ensureTreasuryRoutingTables();
+  const clock = saoPauloClock(at);
+  const rows = (await getDb().select().from(treasuryRoutingSchedules))
+    .filter((row) => row.userId === userId && row.active && row.startDate <= clock.date && row.endDate >= clock.date);
+  let effective: TreasuryAvailability = "available";
+  let strongest: typeof treasuryRoutingSchedules.$inferSelect | null = null;
+  for (const row of rows) {
+    const rowAvailability = scheduleEffectiveAvailability(row, clock.time);
+    if (!strongest || availabilityRank(rowAvailability) > availabilityRank(effective)) {
+      effective = rowAvailability;
+      strongest = row;
+    } else if (!strongest) {
+      strongest = row;
+    }
+  }
+  return { availability: effective, schedule: strongest, activeSchedules: rows, localDate: clock.date, localTime: clock.time };
+}
+
+export async function getTreasuryRoutingSnapshot(userId: number, at = new Date()) {
   await ensureTreasuryRoutingTables();
   const db = getDb();
   const [profile] = await db.select().from(treasuryRoutingProfiles).where(eq(treasuryRoutingProfiles.userId, userId)).limit(1);
@@ -144,21 +253,32 @@ export async function getTreasuryRoutingSnapshot(userId: number) {
   for (const row of skillRows) {
     if ((treasuryRoutingDomains as readonly string[]).includes(row.domain)) skills[row.domain as TreasuryRoutingDomain] = Number(row.level);
   }
+  const baseAvailability = (profile?.availability ?? "available") as TreasuryAvailability;
+  const scheduled = await effectiveScheduleForUser(userId, at);
+  const effectiveAvailability = strongestAvailability(baseAvailability, scheduled.availability);
   return {
     userId,
-    availability: (profile?.availability ?? "available") as TreasuryAvailability,
+    availability: baseAvailability,
+    effectiveAvailability,
     availabilityUntil: profile?.availabilityUntil ?? null,
     notes: profile?.notes ?? null,
     skills,
+    activeSchedule: scheduled.schedule,
+    activeSchedules: scheduled.activeSchedules,
+    coverageUserId: scheduled.schedule?.coverageUserId ?? null,
+    effectiveSource: scheduled.schedule && availabilityRank(scheduled.availability) >= availabilityRank(baseAvailability) ? "schedule" as const : "profile" as const,
+    localDate: scheduled.localDate,
+    localTime: scheduled.localTime,
   };
 }
 
 export async function listTreasuryRoutingProfiles(users: Array<{ id: number; name: string; email: string; role: string }>) {
   await ensureTreasuryRoutingUsers(users);
   const db = getDb();
-  const [profiles, skillRows] = await Promise.all([
+  const [profiles, skillRows, schedules] = await Promise.all([
     db.select().from(treasuryRoutingProfiles),
     db.select().from(treasuryRoutingSkills),
+    db.select().from(treasuryRoutingSchedules),
   ]);
   const profileMap = new Map(profiles.map((row) => [row.userId, row]));
   const skillsByUser = new Map<number, Record<TreasuryRoutingDomain, number>>();
@@ -170,23 +290,42 @@ export async function listTreasuryRoutingProfiles(users: Array<{ id: number; nam
     const skills = skillsByUser.get(row.userId);
     if (skills) skills[row.domain as TreasuryRoutingDomain] = Number(row.level);
   }
+  const clock = saoPauloClock();
   return users.map((user) => {
     const profile = profileMap.get(user.id);
+    const baseAvailability = (profile?.availability ?? "available") as TreasuryAvailability;
+    const activeSchedules = schedules.filter((row) => row.userId === user.id && row.active && row.startDate <= clock.date && row.endDate >= clock.date);
+    let scheduledAvailability: TreasuryAvailability = "available";
+    let activeSchedule: typeof treasuryRoutingSchedules.$inferSelect | null = null;
+    for (const row of activeSchedules) {
+      const candidate = scheduleEffectiveAvailability(row, clock.time);
+      if (!activeSchedule || availabilityRank(candidate) > availabilityRank(scheduledAvailability)) {
+        scheduledAvailability = candidate;
+        activeSchedule = row;
+      } else if (!activeSchedule) {
+        activeSchedule = row;
+      }
+    }
     return {
       ...user,
-      availability: (profile?.availability ?? "available") as TreasuryAvailability,
+      availability: baseAvailability,
+      effectiveAvailability: strongestAvailability(baseAvailability, scheduledAvailability),
       availabilityUntil: profile?.availabilityUntil ?? null,
       notes: profile?.notes ?? null,
       updatedBy: profile?.updatedBy ?? null,
       updatedAt: profile?.updatedAt ?? null,
       skills: skillsByUser.get(user.id)!,
+      activeSchedule,
+      activeSchedules,
+      coverageUserId: activeSchedule?.coverageUserId ?? null,
+      effectiveSource: activeSchedule && availabilityRank(scheduledAvailability) >= availabilityRank(baseAvailability) ? "schedule" as const : "profile" as const,
     };
   });
 }
 
 export async function isTreasuryRoutingEligible(userId: number, domain: TreasuryRoutingDomain) {
   const snapshot = await getTreasuryRoutingSnapshot(userId);
-  return snapshot.availability !== "unavailable" && Number(snapshot.skills[domain] ?? 0) > 0;
+  return snapshot.effectiveAvailability !== "unavailable" && Number(snapshot.skills[domain] ?? 0) > 0;
 }
 
 export async function saveTreasuryRoutingProfile(args: {
@@ -229,4 +368,84 @@ export async function saveTreasuryRoutingProfile(args: {
     performedBy: args.performedBy,
   });
   return after;
+}
+
+export async function listTreasuryRoutingSchedules() {
+  await ensureTreasuryRoutingTables();
+  return getDb().select().from(treasuryRoutingSchedules)
+    .orderBy(desc(treasuryRoutingSchedules.startDate), desc(treasuryRoutingSchedules.id));
+}
+
+export async function listTreasuryRoutingScheduleAudit(limit = 120) {
+  await ensureTreasuryRoutingTables();
+  return getDb().select().from(treasuryRoutingScheduleAudit)
+    .orderBy(desc(treasuryRoutingScheduleAudit.createdAt), desc(treasuryRoutingScheduleAudit.id))
+    .limit(limit);
+}
+
+export async function saveTreasuryRoutingSchedule(args: {
+  id?: number | null;
+  userId: number;
+  scheduleType: TreasuryScheduleType;
+  startDate: string;
+  endDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  coverageUserId: number | null;
+  notes: string | null;
+  active: boolean;
+  performedBy: string;
+}) {
+  await ensureTreasuryRoutingTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  if (args.id) {
+    const [existing] = await db.select().from(treasuryRoutingSchedules).where(eq(treasuryRoutingSchedules.id, args.id)).limit(1);
+    if (!existing) throw new Error("Escala programada não encontrada.");
+    const [updated] = await db.update(treasuryRoutingSchedules).set({
+      userId: args.userId,
+      scheduleType: args.scheduleType,
+      startDate: args.startDate,
+      endDate: args.endDate,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      coverageUserId: args.coverageUserId,
+      notes: args.notes,
+      active: args.active,
+      updatedBy: args.performedBy,
+      updatedAt: now,
+    }).where(eq(treasuryRoutingSchedules.id, args.id)).returning();
+    await db.insert(treasuryRoutingScheduleAudit).values({
+      scheduleId: existing.id,
+      userId: args.userId,
+      action: args.active ? "schedule_updated" : "schedule_cancelled",
+      beforeJson: JSON.stringify(existing),
+      afterJson: JSON.stringify(updated),
+      performedBy: args.performedBy,
+    });
+    return updated;
+  }
+  const [created] = await db.insert(treasuryRoutingSchedules).values({
+    userId: args.userId,
+    scheduleType: args.scheduleType,
+    startDate: args.startDate,
+    endDate: args.endDate,
+    startTime: args.startTime,
+    endTime: args.endTime,
+    coverageUserId: args.coverageUserId,
+    notes: args.notes,
+    active: args.active,
+    createdBy: args.performedBy,
+    updatedBy: args.performedBy,
+    updatedAt: now,
+  }).returning();
+  await db.insert(treasuryRoutingScheduleAudit).values({
+    scheduleId: created.id,
+    userId: args.userId,
+    action: "schedule_created",
+    beforeJson: null,
+    afterJson: JSON.stringify(created),
+    performedBy: args.performedBy,
+  });
+  return created;
 }
