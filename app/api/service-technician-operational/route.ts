@@ -23,11 +23,14 @@ const dateKey = (value: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(text(value)) ? te
 const dateTime = (value: unknown) => {
   const raw = text(value);
   if (!raw) return null;
-  const date = new Date(raw);
+  const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(raw)
+    ? raw
+    : `${raw}${raw.length === 16 ? ":00" : ""}-03:00`;
+  const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 const hhmm = (value: unknown, fallback: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(text(value)) ? text(value) : fallback;
-const skillCodes = new Set(SERVICE_TECHNICIAN_SKILLS.map(([code]) => code));
+const skillCodes = new Set<string>(SERVICE_TECHNICIAN_SKILLS.map(([code]) => code));
 const certificateTypes = new Set(SERVICE_TECHNICIAN_CERTIFICATES.map((item) => item.toLowerCase()));
 const availabilityValues = new Set(["available", "limited", "unavailable"]);
 const absenceTypes = new Set(["vacation", "day_off", "training", "occupied", "unavailable", "other"]);
@@ -148,7 +151,7 @@ export async function POST(request: Request) {
     if (action === "skill") {
       const skillCode = text(payload.skillCode);
       const level = Math.max(1, Math.min(3, Number(payload.level) || 2));
-      if (!skillCodes.has(skillCode as never)) return Response.json({ error: "Competência inválida." }, { status: 400 });
+      if (!skillCodes.has(skillCode)) return Response.json({ error: "Competência inválida." }, { status: 400 });
       const [existing] = (await db.select().from(serviceTechnicianSkills).where(eq(serviceTechnicianSkills.technicianId, technicianId))).filter((row) => row.skillCode === skillCode);
       let row;
       if (existing) {
