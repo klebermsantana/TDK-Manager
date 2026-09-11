@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { listTreasuryAlertUsers } from "@/app/treasury-alert-assignment";
 import {
@@ -32,10 +32,11 @@ export async function GET() {
       audit,
       summary: {
         total: profiles.length,
-        available: profiles.filter((row) => row.availability === "available").length,
-        limited: profiles.filter((row) => row.availability === "limited").length,
-        unavailable: profiles.filter((row) => row.availability === "unavailable").length,
+        available: profiles.filter((row) => row.effectiveAvailability === "available").length,
+        limited: profiles.filter((row) => row.effectiveAvailability === "limited").length,
+        unavailable: profiles.filter((row) => row.effectiveAvailability === "unavailable").length,
         specialists: profiles.reduce((sum, row) => sum + Object.values(row.skills).filter((level) => Number(level) === 3).length, 0),
+        scheduled: profiles.filter((row) => row.activeSchedule).length,
       },
     });
   } catch (error) {
