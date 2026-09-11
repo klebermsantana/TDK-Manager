@@ -7,6 +7,7 @@ export default defineConfig({
     "./db/sla-schema.ts",
     "./db/profitability-schema.ts",
     "./db/goal-scope-schema.ts",
+    "./db/treasury-schema.ts",
   ],
   dialect: "sqlite",
 });
