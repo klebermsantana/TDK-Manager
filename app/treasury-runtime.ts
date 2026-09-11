@@ -77,7 +77,7 @@ export async function ensureTreasuryTables() {
   `));
   await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_statement_external ON treasury_statement_transactions(import_id, external_id)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_statement_transaction_account_date ON treasury_statement_transactions(bank_account_id, transaction_date)`));
-  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_statement_transaction_match ON treasury_statement_transactions(matched_movement_type, matched_movement_id)`));
+  await db.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_treasury_statement_matched_movement ON treasury_statement_transactions(matched_movement_type, matched_movement_id)`));
 }
 
 export async function requireTreasuryAccess() {
