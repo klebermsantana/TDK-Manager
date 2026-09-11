@@ -5,6 +5,11 @@ import { treasuryMovementAccounts } from "@/db/treasury-schema";
 import { treasuryClosingRecords } from "@/db/treasury-closing-schema";
 
 export async function ensureOfficialTreasuryClosingTables() {
+  const { ensureTreasuryTables } = await import("@/app/treasury-runtime");
+  const { ensureFinancialLedger } = await import("@/app/financial-ledger");
+  await ensureTreasuryTables();
+  await ensureFinancialLedger();
+
   const db = getDb();
   await db.run(sql.raw(`
     CREATE TABLE IF NOT EXISTS treasury_closing_records (
@@ -53,6 +58,141 @@ export async function ensureOfficialTreasuryClosingTables() {
   `));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_closing_audit_closing ON treasury_closing_audit(closing_id, created_at)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_closing_audit_account ON treasury_closing_audit(bank_account_id, created_at)`));
+
+  const guardMessage = "TREASURY_CLOSED_PERIOD: reabra o fechamento oficial antes de alterar este periodo";
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_financial_events_closed_insert
+    BEFORE INSERT ON treasury_financial_events
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      WHERE c.status = 'closed'
+        AND c.closing_date >= NEW.event_date
+        AND (NEW.bank_account_id IS NULL OR c.bank_account_id = NEW.bank_account_id)
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_statement_imports_closed_insert
+    BEFORE INSERT ON treasury_statement_imports
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      WHERE c.status = 'closed'
+        AND c.bank_account_id = NEW.bank_account_id
+        AND NEW.period_start IS NOT NULL
+        AND c.closing_date >= NEW.period_start
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_statement_transactions_closed_update
+    BEFORE UPDATE ON treasury_statement_transactions
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      WHERE c.status = 'closed'
+        AND c.bank_account_id = OLD.bank_account_id
+        AND c.closing_date >= OLD.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_reconciliation_allocations_closed_insert
+    BEFORE INSERT ON treasury_reconciliation_allocations
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      JOIN treasury_statement_transactions t ON t.id = NEW.statement_transaction_id
+      WHERE c.status = 'closed' AND c.bank_account_id = NEW.bank_account_id AND c.closing_date >= t.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_reconciliation_allocations_closed_update
+    BEFORE UPDATE ON treasury_reconciliation_allocations
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      JOIN treasury_statement_transactions t ON t.id = OLD.statement_transaction_id
+      WHERE c.status = 'closed' AND c.bank_account_id = OLD.bank_account_id AND c.closing_date >= t.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_reconciliation_allocations_closed_delete
+    BEFORE DELETE ON treasury_reconciliation_allocations
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      JOIN treasury_statement_transactions t ON t.id = OLD.statement_transaction_id
+      WHERE c.status = 'closed' AND c.bank_account_id = OLD.bank_account_id AND c.closing_date >= t.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_reconciliation_settlements_closed_insert
+    BEFORE INSERT ON treasury_reconciliation_settlements
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      JOIN treasury_statement_transactions t ON t.id = NEW.statement_transaction_id
+      WHERE c.status = 'closed' AND c.bank_account_id = NEW.bank_account_id AND c.closing_date >= t.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_reconciliation_settlements_closed_delete
+    BEFORE DELETE ON treasury_reconciliation_settlements
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_closing_records c
+      JOIN treasury_statement_transactions t ON t.id = OLD.statement_transaction_id
+      WHERE c.status = 'closed' AND c.bank_account_id = OLD.bank_account_id AND c.closing_date >= t.transaction_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_movement_accounts_closed_insert
+    BEFORE INSERT ON treasury_movement_accounts
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_financial_events e
+      JOIN treasury_closing_records c ON c.bank_account_id = NEW.bank_account_id
+      WHERE c.status = 'closed'
+        AND e.movement_type = NEW.movement_type
+        AND e.movement_id = NEW.movement_id
+        AND c.closing_date >= e.event_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_movement_accounts_closed_update
+    BEFORE UPDATE ON treasury_movement_accounts
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_financial_events e
+      JOIN treasury_closing_records c ON c.status = 'closed'
+      WHERE e.movement_type = OLD.movement_type
+        AND e.movement_id = OLD.movement_id
+        AND c.closing_date >= e.event_date
+        AND c.bank_account_id IN (OLD.bank_account_id, NEW.bank_account_id)
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_movement_accounts_closed_delete
+    BEFORE DELETE ON treasury_movement_accounts
+    WHEN EXISTS (
+      SELECT 1 FROM treasury_financial_events e
+      JOIN treasury_closing_records c ON c.bank_account_id = OLD.bank_account_id
+      WHERE c.status = 'closed'
+        AND e.movement_type = OLD.movement_type
+        AND e.movement_id = OLD.movement_id
+        AND c.closing_date >= e.event_date
+    )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
+  await db.run(sql.raw(`
+    CREATE TRIGGER IF NOT EXISTS trg_treasury_bank_accounts_closed_balance_update
+    BEFORE UPDATE ON treasury_bank_accounts
+    WHEN (NEW.current_balance <> OLD.current_balance OR NEW.balance_date <> OLD.balance_date OR NEW.opening_balance <> OLD.opening_balance OR NEW.opening_date <> OLD.opening_date)
+      AND EXISTS (
+        SELECT 1 FROM treasury_closing_records c
+        WHERE c.status = 'closed' AND c.bank_account_id = OLD.id AND c.closing_date >= NEW.balance_date
+      )
+    BEGIN SELECT RAISE(ABORT, '${guardMessage}'); END
+  `));
 }
 
 export async function findBlockingClosing(bankAccountId: number | null, eventDate: string) {
