@@ -83,7 +83,11 @@ export async function GET(request: Request) {
       let fullyAllocatedCount = 0;
       for (const transaction of accountTransactions) {
         const statementAmount = Math.abs(Number(transaction.amount));
-        const allocatedAmount = allocationByTransaction.get(transaction.id) ?? 0;
+        const splitAllocatedAmount = allocationByTransaction.get(transaction.id) ?? 0;
+        const legacyFullyMatched = Boolean(transaction.matchedMovementType && transaction.matchedMovementId);
+        const allocatedAmount = splitAllocatedAmount > 0.009
+          ? splitAllocatedAmount
+          : legacyFullyMatched ? statementAmount : 0;
         const remaining = Math.max(0, statementAmount - allocatedAmount);
         if (remaining > 0.01) {
           unallocatedAmount += remaining;
