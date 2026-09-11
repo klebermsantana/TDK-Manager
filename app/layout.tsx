@@ -27,6 +27,7 @@ import "./treasury-routing-schedules-dashboard.css";
 import "./treasury-capacity-forecast-dashboard.css";
 import "./treasury-capacity-alerts-dashboard.css";
 import "./treasury-capacity-smart-routing-dashboard.css";
+import "./treasury-capacity-smart-routing-feedback.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
