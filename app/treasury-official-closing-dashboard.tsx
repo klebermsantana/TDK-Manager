@@ -107,6 +107,16 @@ export function TreasuryOfficialClosingDashboard() {
     if (open) void refresh();
   }, [open]);
 
+  useEffect(() => {
+    const openFromCalendar = (event: Event) => {
+      const requestedDate = (event as CustomEvent<{ date?: string }>).detail?.date;
+      if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && requestedDate <= localDateKey()) setDate(requestedDate);
+      setOpen(true);
+    };
+    window.addEventListener("tdk:open-treasury-official-closing", openFromCalendar);
+    return () => window.removeEventListener("tdk:open-treasury-official-closing", openFromCalendar);
+  }, []);
+
   const activeByAccount = useMemo(() => new Map((official?.latestActive ?? []).map((item) => [item.bankAccountId, item])), [official]);
   const readyToClose = useMemo(() => (diagnostics?.accounts ?? []).filter((account) => {
     if (!account.ready) return false;
