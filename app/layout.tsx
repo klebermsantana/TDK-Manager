@@ -11,6 +11,7 @@ import "./service-call-sla-config-shortcut.css";
 import "./service-call-sla-operations-section.css";
 import "./service-call-profitability-dashboard.css";
 import "./service-technician-cost-dashboard.css";
+import "./service-technician-settlement-dashboard.css";
 import "./service-call-profitability-plan.css";
 import "./service-call-client-profitability-section.css";
 import "./service-call-financial-goals-section.css";
@@ -49,6 +50,7 @@ import { ServiceCallSlaConfigShortcut } from "./service-call-sla-config-shortcut
 import { ServiceCallSlaOperationsSection } from "./service-call-sla-operations-section";
 import { ServiceCallProfitabilityDashboard } from "./service-call-profitability-dashboard";
 import { ServiceTechnicianCostDashboard } from "./service-technician-cost-dashboard";
+import { ServiceTechnicianSettlementDashboard } from "./service-technician-settlement-dashboard";
 import { ServiceCallClientProfitabilitySection } from "./service-call-client-profitability-section";
 import { ServiceCallFinancialGoalsSection } from "./service-call-financial-goals-section";
 import { ServiceCallFinancialForecastSection } from "./service-call-financial-forecast-section";
@@ -103,6 +105,7 @@ export default function RootLayout({
         <ServiceCallSlaOperationsSection />
         <ServiceCallProfitabilityDashboard />
         <ServiceTechnicianCostDashboard />
+        <ServiceTechnicianSettlementDashboard />
         <ServiceCallClientProfitabilitySection />
         <ServiceCallFinancialGoalsSection />
         <ServiceCallFinancialForecastSection />
