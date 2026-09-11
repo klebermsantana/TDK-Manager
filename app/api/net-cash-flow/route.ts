@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
+import { ensureFinancialLedger } from "@/app/financial-ledger";
 import { getDb } from "@/db";
 import { billings, companies, payables, receivables, sales, suppliers } from "@/db/schema";
-import { treasuryMovementAccounts } from "@/db/treasury-schema";
+import { treasuryFinancialEvents, treasuryMovementAccounts } from "@/db/treasury-schema";
 import { ensureTreasuryTables, requireTreasuryAccess } from "@/app/treasury-runtime";
 
 export async function GET() {
@@ -10,8 +11,9 @@ export async function GET() {
 
   try {
     await ensureTreasuryTables();
+    await ensureFinancialLedger();
     const db = getDb();
-    const [billingRows, receivableRows, payableRows, allocations] = await Promise.all([
+    const [billingRows, receivableRows, payableRows, allocations, financialEvents] = await Promise.all([
       db
         .select({
           id: billings.id,
@@ -72,7 +74,25 @@ export async function GET() {
         .innerJoin(suppliers, eq(payables.supplierId, suppliers.id))
         .leftJoin(companies, eq(payables.companyId, companies.id)),
       db.select().from(treasuryMovementAccounts),
+      db.select().from(treasuryFinancialEvents),
     ]);
+
+    const eventsByMovement = new Map<string, typeof financialEvents>();
+    for (const event of financialEvents) {
+      const key = `${event.movementType}:${event.movementId}`;
+      const list = eventsByMovement.get(key) ?? [];
+      list.push(event);
+      eventsByMovement.set(key, list);
+    }
+    const realizedEventsFor = (movementType: string, movementId: number) => (eventsByMovement.get(`${movementType}:${movementId}`) ?? [])
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.id - b.id)
+      .map((event) => ({
+        id: event.id,
+        eventDate: event.eventDate,
+        amount: Number(event.amount),
+        eventType: event.eventType,
+        source: event.source,
+      }));
 
     const allocationByMovement = new Map(
       allocations.map((item) => [`${item.movementType}:${item.movementId}`, item.bankAccountId]),
@@ -104,6 +124,7 @@ export async function GET() {
         scheduledAmount: Math.max(0, grossAmount - realizedAmount),
         realizedAmount,
         paymentDate: row.paymentDate,
+        realizedEvents: realizedEventsFor("receivable", row.id),
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -125,6 +146,7 @@ export async function GET() {
         scheduledAmount: Math.max(0, Number(row.total) - Number(row.receivedAmount)),
         realizedAmount: Math.max(0, Number(row.receivedAmount)),
         paymentDate: null as string | null,
+        realizedEvents: [] as Array<{ id: number; eventDate: string; amount: number; eventType: string; source: string }>,
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.createdAt,
@@ -145,6 +167,7 @@ export async function GET() {
         scheduledAmount: Math.max(0, Number(row.amount) - Number(row.paidAmount)),
         realizedAmount: Math.max(0, Number(row.paidAmount)),
         paymentDate: row.paymentDate,
+        realizedEvents: realizedEventsFor("payable", row.id),
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -160,6 +183,7 @@ export async function GET() {
         receivedWithoutPaymentDate: [...inflows, ...billingFallbacks].filter((item) => item.realizedAmount > 0 && !item.paymentDate).length,
         paidWithoutPaymentDate: outflows.filter((item) => item.realizedAmount > 0 && !item.paymentDate).length,
         movementsWithoutBankAccount: movements.filter((item) => item.scheduledAmount > 0 && !item.bankAccountId).length,
+        legacySnapshotEvents: financialEvents.filter((item) => item.eventType === "legacy_snapshot").length,
       },
     });
   } catch {
