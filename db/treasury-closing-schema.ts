@@ -103,3 +103,20 @@ export const treasuryClosingTaskAudit = sqliteTable(
     index("idx_treasury_closing_task_audit_task").on(table.taskId, table.createdAt),
   ],
 );
+
+export const treasuryAlertSettings = sqliteTable(
+  "treasury_alert_settings",
+  {
+    id: integer("id").primaryKey(),
+    forecastHorizonDays: integer("forecast_horizon_days").notNull().default(30),
+    reconciliationMinPct: real("reconciliation_min_pct").notNull().default(95),
+    closingCadence: text("closing_cadence").notNull().default("daily"),
+    negativeForecastEnabled: integer("negative_forecast_enabled", { mode: "boolean" }).notNull().default(true),
+    criticalTasksEnabled: integer("critical_tasks_enabled", { mode: "boolean" }).notNull().default(true),
+    reconciliationEnabled: integer("reconciliation_enabled", { mode: "boolean" }).notNull().default(true),
+    closingOverdueEnabled: integer("closing_overdue_enabled", { mode: "boolean" }).notNull().default(true),
+    updatedBy: text("updated_by"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+);
