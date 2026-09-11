@@ -47,6 +47,28 @@ export async function ensureFinancialLedger() {
 
   await db.run(sql.raw(`
     INSERT OR IGNORE INTO treasury_financial_events
+      (movement_type, movement_id, direction, event_type, amount, event_date, source, source_key,
+       bank_account_id, statement_transaction_id, performed_by, notes, created_at)
+    SELECT a.movement_type,
+      a.movement_id,
+      CASE WHEN a.movement_type = 'payable' THEN 'outflow' ELSE 'inflow' END,
+      CASE WHEN a.action = 'reverse' THEN 'reversal' ELSE 'payment' END,
+      CASE WHEN a.action = 'reverse' THEN -ABS(a.amount) ELSE ABS(a.amount) END,
+      a.payment_date,
+      'reconciliation',
+      'reconciliation:audit:' || a.id,
+      a.bank_account_id,
+      a.statement_transaction_id,
+      a.performed_by,
+      CASE WHEN a.action = 'reverse' THEN 'Estorno originado pela conciliação bancária' ELSE 'Baixa originada pela conciliação bancária' END,
+      a.created_at
+    FROM treasury_reconciliation_audit a
+    WHERE a.action IN ('settle', 'reverse')
+      AND a.movement_type IN ('receivable', 'payable')
+  `));
+
+  await db.run(sql.raw(`
+    INSERT OR IGNORE INTO treasury_financial_events
       (movement_type, movement_id, direction, event_type, amount, event_date, source, source_key, performed_by, notes)
     SELECT 'receivable', r.id, 'inflow', 'legacy_snapshot', r.received_amount, r.payment_date,
       'legacy_snapshot', 'legacy:receivable:' || r.id, 'migração',
