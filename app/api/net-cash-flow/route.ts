@@ -1,17 +1,17 @@
 import { eq } from "drizzle-orm";
-import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
 import { billings, companies, payables, receivables, sales, suppliers } from "@/db/schema";
+import { treasuryMovementAccounts } from "@/db/treasury-schema";
+import { ensureTreasuryTables, requireTreasuryAccess } from "@/app/treasury-runtime";
 
 export async function GET() {
-  const receivablesDenied = await requirePermission("receivables");
-  if (receivablesDenied) return receivablesDenied;
-  const payablesDenied = await requirePermission("payables");
-  if (payablesDenied) return payablesDenied;
+  const denied = await requireTreasuryAccess();
+  if (denied) return denied;
 
   try {
+    await ensureTreasuryTables();
     const db = getDb();
-    const [billingRows, receivableRows, payableRows] = await Promise.all([
+    const [billingRows, receivableRows, payableRows, allocations] = await Promise.all([
       db
         .select({
           id: billings.id,
@@ -71,7 +71,21 @@ export async function GET() {
         .from(payables)
         .innerJoin(suppliers, eq(payables.supplierId, suppliers.id))
         .leftJoin(companies, eq(payables.companyId, companies.id)),
+      db.select().from(treasuryMovementAccounts),
     ]);
+
+    const allocationByMovement = new Map(
+      allocations.map((item) => [`${item.movementType}:${item.movementId}`, item.bankAccountId]),
+    );
+    const bankAccountFor = (movementType: string, movementId: number, billingId?: number) => {
+      const direct = allocationByMovement.get(`${movementType}:${movementId}`);
+      if (direct) return { bankAccountId: direct, allocationSource: "direct" as const };
+      if (movementType === "receivable" && billingId) {
+        const inherited = allocationByMovement.get(`billing:${billingId}`);
+        if (inherited) return { bankAccountId: inherited, allocationSource: "billing" as const };
+      }
+      return { bankAccountId: null, allocationSource: null };
+    };
 
     const billingIdsWithInstallments = new Set(receivableRows.map((row) => row.billingId));
 
@@ -80,6 +94,7 @@ export async function GET() {
       const realizedAmount = Math.max(0, Number(row.receivedAmount));
       return {
         id: `receivable-${row.id}`,
+        movementId: row.id,
         type: "inflow" as const,
         source: "receivable" as const,
         document: row.billingNumber,
@@ -92,6 +107,7 @@ export async function GET() {
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ...bankAccountFor("receivable", row.id, row.billingId),
       };
     });
 
@@ -99,6 +115,7 @@ export async function GET() {
       .filter((row) => !billingIdsWithInstallments.has(row.id))
       .map((row) => ({
         id: `billing-${row.id}`,
+        movementId: row.id,
         type: "inflow" as const,
         source: "billing" as const,
         document: row.number,
@@ -111,12 +128,14 @@ export async function GET() {
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.createdAt,
+        ...bankAccountFor("billing", row.id),
       }));
 
     const outflows = payableRows
       .filter((row) => row.status !== "cancelado")
       .map((row) => ({
         id: `payable-${row.id}`,
+        movementId: row.id,
         type: "outflow" as const,
         source: "payable" as const,
         document: row.groupNumber,
@@ -129,15 +148,18 @@ export async function GET() {
         status: row.status,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ...bankAccountFor("payable", row.id),
       }));
 
+    const movements = [...inflows, ...billingFallbacks, ...outflows];
     return Response.json({
-      movements: [...inflows, ...billingFallbacks, ...outflows],
+      movements,
       dataQuality: {
         billingsWithoutInstallments: billingFallbacks.length,
         billingsWithoutDueDate: billingFallbacks.filter((item) => item.scheduledAmount > 0 && !item.dueDate).length,
         receivedWithoutPaymentDate: [...inflows, ...billingFallbacks].filter((item) => item.realizedAmount > 0 && !item.paymentDate).length,
         paidWithoutPaymentDate: outflows.filter((item) => item.realizedAmount > 0 && !item.paymentDate).length,
+        movementsWithoutBankAccount: movements.filter((item) => item.scheduledAmount > 0 && !item.bankAccountId).length,
       },
     });
   } catch {
