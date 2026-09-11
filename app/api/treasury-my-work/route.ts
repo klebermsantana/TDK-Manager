@@ -1,7 +1,9 @@
 import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { GET as getExecutiveAlerts } from "@/app/api/treasury-executive-alerts/route";
+import { GET as getCapacityAlerts } from "@/app/api/treasury-capacity-alerts/route";
 import { ensureTreasuryAlertSettings } from "@/app/treasury-executive-alerts-runtime";
+import { ensureTreasuryCapacityAlertTables } from "@/app/treasury-capacity-alerts-runtime";
 import { ensureTreasuryClosingTaskTables } from "@/app/treasury-closing-tasks-runtime";
 import { assignDefaultOnEscalation } from "@/app/treasury-alert-assignment";
 import { requireTreasuryAccess } from "@/app/treasury-runtime";
@@ -11,6 +13,7 @@ import {
   treasuryAlertSettings,
   treasuryClosingTasks,
 } from "@/db/treasury-closing-schema";
+import { treasuryCapacityAlertOccurrences } from "@/db/treasury-routing-schema";
 import { treasuryBankAccounts } from "@/db/treasury-schema";
 
 const minuteMs = 60000;
@@ -32,11 +35,26 @@ function alertTypeLabel(type: string) {
   return "Tesouraria";
 }
 
+function preventiveTypeLabel(type: string) {
+  if (type === "uncovered_skill") return "Preventivo · Sem cobertura";
+  if (type === "single_point") return "Preventivo · Ponto único";
+  if (type === "absence_without_coverage") return "Preventivo · Ausência sem cobertura";
+  if (type === "low_capacity") return "Preventivo · Capacidade reduzida";
+  return "Preventivo · Capacidade";
+}
+
 function taskDestination(issueType: string) {
   if (["statement_missing", "statement_outdated", "unallocated_statement"].includes(issueType)) return "reconciliation";
   if (issueType === "ledger_unassigned") return "ledger";
   if (["balance_difference", "base_anchor", "statement_balance_missing"].includes(issueType)) return "closing";
   return "tasks";
+}
+
+function daysUntil(date: string, now: string) {
+  const today = now.slice(0, 10);
+  const start = new Date(`${today}T12:00:00Z`).getTime();
+  const end = new Date(`${date}T12:00:00Z`).getTime();
+  return Math.max(0, Math.round((end - start) / 86400000));
 }
 
 export async function GET() {
@@ -47,12 +65,20 @@ export async function GET() {
 
   try {
     await ensureTreasuryAlertSettings();
+    await ensureTreasuryCapacityAlertTables();
     await ensureTreasuryClosingTaskTables();
 
-    const synchronization = await getExecutiveAlerts();
-    if (!synchronization.ok) {
-      const payload = await synchronization.json().catch(() => ({})) as { error?: string };
-      return Response.json({ error: payload.error ?? "Não foi possível sincronizar a Tesouraria." }, { status: synchronization.status });
+    const [executiveSynchronization, preventiveSynchronization] = await Promise.all([
+      getExecutiveAlerts(),
+      getCapacityAlerts(),
+    ]);
+    if (!executiveSynchronization.ok) {
+      const payload = await executiveSynchronization.json().catch(() => ({})) as { error?: string };
+      return Response.json({ error: payload.error ?? "Não foi possível sincronizar a Tesouraria." }, { status: executiveSynchronization.status });
+    }
+    if (!preventiveSynchronization.ok) {
+      const payload = await preventiveSynchronization.json().catch(() => ({})) as { error?: string };
+      return Response.json({ error: payload.error ?? "Não foi possível sincronizar os preventivos." }, { status: preventiveSynchronization.status });
     }
 
     const db = getDb();
@@ -62,12 +88,11 @@ export async function GET() {
 
     const activeOccurrences = (await db.select().from(treasuryAlertOccurrences))
       .filter((item) => item.status === "active");
-    for (const occurrence of activeOccurrences) {
-      await assignDefaultOnEscalation(occurrence);
-    }
+    for (const occurrence of activeOccurrences) await assignDefaultOnEscalation(occurrence);
 
-    const [occurrences, tasks, accounts] = await Promise.all([
+    const [occurrences, preventiveOccurrences, tasks, accounts] = await Promise.all([
       db.select().from(treasuryAlertOccurrences),
+      db.select().from(treasuryCapacityAlertOccurrences),
       db.select().from(treasuryClosingTasks),
       db.select().from(treasuryBankAccounts).orderBy(asc(treasuryBankAccounts.name)),
     ]);
@@ -109,6 +134,39 @@ export async function GET() {
         };
       });
 
+    const preventives = preventiveOccurrences
+      .filter((item) => item.status === "active" && (item.assignedEmail ?? "").toLowerCase() === email)
+      .map((item) => {
+        const remaining = remainingMinutes(item.preparationDueAt, now);
+        return {
+          kind: "preventive" as const,
+          id: item.id,
+          title: item.title,
+          detail: item.detail,
+          recommendedAction: item.recommendedAction,
+          accountName: "Capacidade da Tesouraria",
+          priority: item.severity,
+          amount: 0,
+          alertType: item.alertType,
+          alertTypeLabel: preventiveTypeLabel(item.alertType),
+          acknowledgedAt: item.acknowledgedAt,
+          acknowledgedBy: item.acknowledgedBy,
+          firstSeenAt: item.firstSeenAt,
+          assignedAt: item.assignedAt,
+          assignmentSource: item.assignmentSource,
+          preparationEscalatedAt: item.preparationEscalatedAt,
+          preparationDueAt: item.preparationDueAt,
+          preparedAt: item.preparedAt,
+          preparedBy: item.preparedBy,
+          preparationNote: item.preparationNote,
+          riskDate: item.riskDate,
+          daysUntilRisk: daysUntil(item.riskDate, now),
+          slaRemainingMinutes: remaining,
+          dueSoon: !item.preparedAt && remaining !== null && remaining > 0 && remaining <= 1440,
+          destination: "capacity_alerts" as const,
+        };
+      });
+
     const pendingTasks = tasks
       .filter((item) => item.sourceActive && item.status !== "resolved" && (item.assignedEmail ?? "").toLowerCase() === email)
       .map((item) => ({
@@ -133,12 +191,12 @@ export async function GET() {
       }));
 
     const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2 };
-    const items = [...alerts, ...pendingTasks].sort((a, b) => {
-      const escalatedA = a.kind === "alert" && a.escalationStage ? 0 : 1;
-      const escalatedB = b.kind === "alert" && b.escalationStage ? 0 : 1;
-      if (escalatedA !== escalatedB) return escalatedA - escalatedB;
-      const dueA = a.kind === "alert" && a.slaRemainingMinutes !== null ? a.slaRemainingMinutes : Number.POSITIVE_INFINITY;
-      const dueB = b.kind === "alert" && b.slaRemainingMinutes !== null ? b.slaRemainingMinutes : Number.POSITIVE_INFINITY;
+    const items = [...alerts, ...preventives, ...pendingTasks].sort((a, b) => {
+      const escalatedA = a.kind === "alert" ? Boolean(a.escalationStage) : a.kind === "preventive" ? Boolean(a.preparationEscalatedAt && !a.preparedAt) : false;
+      const escalatedB = b.kind === "alert" ? Boolean(b.escalationStage) : b.kind === "preventive" ? Boolean(b.preparationEscalatedAt && !b.preparedAt) : false;
+      if (escalatedA !== escalatedB) return escalatedA ? -1 : 1;
+      const dueA = a.kind !== "task" && a.slaRemainingMinutes !== null ? a.slaRemainingMinutes : Number.POSITIVE_INFINITY;
+      const dueB = b.kind !== "task" && b.slaRemainingMinutes !== null ? b.slaRemainingMinutes : Number.POSITIVE_INFINITY;
       if (dueA !== dueB) return dueA - dueB;
       const priorityA = severityRank[a.priority] ?? 9;
       const priorityB = severityRank[b.priority] ?? 9;
@@ -153,14 +211,16 @@ export async function GET() {
       summary: {
         total: items.length,
         alerts: alerts.length,
+        preventives: preventives.length,
         tasks: pendingTasks.length,
         critical: items.filter((item) => item.priority === "critical").length,
-        escalated: alerts.filter((item) => item.escalationStage).length,
-        dueSoon: alerts.filter((item) => item.dueSoon).length,
-        unacknowledged: alerts.filter((item) => !item.acknowledgedAt).length,
+        escalated: alerts.filter((item) => item.escalationStage).length + preventives.filter((item) => item.preparationEscalatedAt && !item.preparedAt).length,
+        dueSoon: alerts.filter((item) => item.dueSoon).length + preventives.filter((item) => item.dueSoon).length,
+        unacknowledged: alerts.filter((item) => !item.acknowledgedAt).length + preventives.filter((item) => !item.acknowledgedAt).length,
+        preventivePrepared: preventives.filter((item) => item.preparedAt).length,
         inProgress: pendingTasks.filter((item) => item.status === "in_progress").length,
         waiting: pendingTasks.filter((item) => item.status === "waiting").length,
-        affectedAmount: items.reduce((sum, item) => sum + Math.abs(item.amount), 0),
+        affectedAmount: [...alerts, ...pendingTasks].reduce((sum, item) => sum + Math.abs(item.amount), 0),
       },
     });
   } catch (error) {
