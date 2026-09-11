@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { todaySaoPaulo } from "@/app/financial-ledger";
 import { GET as getFlow } from "@/app/api/net-cash-flow/route";
@@ -9,12 +9,13 @@ import { GET as getClosingTasks } from "@/app/api/treasury-closing-tasks/route";
 import { ensureTreasuryAlertSettings } from "@/app/treasury-executive-alerts-runtime";
 import { requireTreasuryAccess } from "@/app/treasury-runtime";
 import { getDb } from "@/db";
-import { treasuryAlertSettings } from "@/db/treasury-closing-schema";
+import { treasuryAlertOccurrenceAudit, treasuryAlertOccurrences, treasuryAlertSettings } from "@/db/treasury-closing-schema";
 
 type AlertSeverity = "critical" | "high" | "medium";
+type AlertType = "negative_forecast" | "critical_task" | "reconciliation" | "closing_overdue";
 type ExecutiveAlert = {
   key: string;
-  type: "negative_forecast" | "critical_task" | "reconciliation" | "closing_overdue";
+  type: AlertType;
   severity: AlertSeverity;
   title: string;
   detail: string;
@@ -65,6 +66,110 @@ function projectedFor(movements: any[], currentBalance: number, today: string, h
   return { inflow, outflow, projected: currentBalance + inflow - outflow };
 }
 
+function monitoringEnabled(settings: typeof treasuryAlertSettings.$inferSelect, type: string) {
+  if (type === "negative_forecast") return settings.negativeForecastEnabled;
+  if (type === "critical_task") return settings.criticalTasksEnabled;
+  if (type === "reconciliation") return settings.reconciliationEnabled;
+  if (type === "closing_overdue") return settings.closingOverdueEnabled;
+  return false;
+}
+
+async function synchronizeOccurrences(
+  settings: typeof treasuryAlertSettings.$inferSelect,
+  alerts: ExecutiveAlert[],
+  now: string,
+) {
+  const db = getDb();
+  const activeRows = await db.select().from(treasuryAlertOccurrences)
+    .where(eq(treasuryAlertOccurrences.status, "active"));
+  const activeByKey = new Map(activeRows.map((row) => [row.alertKey, row]));
+  const currentKeys = new Set(alerts.map((alert) => alert.key));
+  const enriched: Array<ExecutiveAlert & {
+    occurrenceId: number;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    acknowledgedBy: string | null;
+    acknowledgedAt: string | null;
+    acknowledgementNote: string | null;
+  }> = [];
+
+  for (const alert of alerts) {
+    let occurrence = activeByKey.get(alert.key);
+    if (!occurrence) {
+      [occurrence] = await db.insert(treasuryAlertOccurrences).values({
+        alertKey: alert.key,
+        alertType: alert.type,
+        severity: alert.severity,
+        title: alert.title,
+        detail: alert.detail,
+        recommendedAction: alert.action,
+        bankAccountId: alert.bankAccountId,
+        accountName: alert.accountName,
+        amount: alert.amount,
+        metric: alert.metric,
+        status: "active",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        updatedAt: now,
+      }).returning();
+      await db.insert(treasuryAlertOccurrenceAudit).values({
+        occurrenceId: occurrence.id,
+        action: "detected",
+        performedBy: "system",
+        note: "Alerta detectado pelas regras executivas da Tesouraria.",
+      });
+    } else {
+      [occurrence] = await db.update(treasuryAlertOccurrences).set({
+        alertType: alert.type,
+        severity: alert.severity,
+        title: alert.title,
+        detail: alert.detail,
+        recommendedAction: alert.action,
+        bankAccountId: alert.bankAccountId,
+        accountName: alert.accountName,
+        amount: alert.amount,
+        metric: alert.metric,
+        lastSeenAt: now,
+        updatedAt: now,
+      }).where(eq(treasuryAlertOccurrences.id, occurrence.id)).returning();
+    }
+
+    enriched.push({
+      ...alert,
+      occurrenceId: occurrence.id,
+      firstSeenAt: occurrence.firstSeenAt,
+      lastSeenAt: occurrence.lastSeenAt,
+      acknowledgedBy: occurrence.acknowledgedBy,
+      acknowledgedAt: occurrence.acknowledgedAt,
+      acknowledgementNote: occurrence.acknowledgementNote,
+    });
+  }
+
+  for (const occurrence of activeRows) {
+    if (currentKeys.has(occurrence.alertKey)) continue;
+    const reason = monitoringEnabled(settings, occurrence.alertType) ? "condition_cleared" : "monitoring_disabled";
+    await db.update(treasuryAlertOccurrences).set({
+      status: "resolved",
+      resolvedAt: now,
+      resolutionReason: reason,
+      updatedAt: now,
+    }).where(eq(treasuryAlertOccurrences.id, occurrence.id));
+    await db.insert(treasuryAlertOccurrenceAudit).values({
+      occurrenceId: occurrence.id,
+      action: "resolved",
+      performedBy: "system",
+      note: reason === "condition_cleared"
+        ? "A condição que originou o alerta deixou de existir."
+        : "A regra correspondente foi desativada; a ocorrência foi encerrada sem afirmar normalização técnica.",
+    });
+  }
+
+  const history = await db.select().from(treasuryAlertOccurrences)
+    .orderBy(desc(treasuryAlertOccurrences.firstSeenAt), desc(treasuryAlertOccurrences.id))
+    .limit(100);
+  return { enriched, history };
+}
+
 export async function GET() {
   const denied = await requireTreasuryAccess();
   if (denied) return denied;
@@ -101,7 +206,7 @@ export async function GET() {
       const consolidated = projectedFor(movements, currentBalance, today, settings.forecastHorizonDays);
       if (consolidated.projected < 0) {
         alerts.push({
-          key: `forecast:consolidated:${settings.forecastHorizonDays}`,
+          key: "forecast:consolidated",
           type: "negative_forecast",
           severity: "critical",
           title: `Caixa consolidado projetado negativo em ${settings.forecastHorizonDays} dias`,
@@ -117,7 +222,7 @@ export async function GET() {
         const projected = projectedFor(movements, Number(account.currentBalance), today, settings.forecastHorizonDays, Number(account.id));
         if (projected.projected >= 0) continue;
         alerts.push({
-          key: `forecast:account:${account.id}:${settings.forecastHorizonDays}`,
+          key: `forecast:account:${account.id}`,
           type: "negative_forecast",
           severity: "critical",
           title: `Saldo projetado negativo · ${account.name}`,
@@ -154,7 +259,7 @@ export async function GET() {
         const coverage = Number(account.reconciliationCoverage ?? 100);
         if (!transactionCount || coverage >= Number(settings.reconciliationMinPct)) continue;
         alerts.push({
-          key: `reconciliation:${account.accountId}`,
+          key: `reconciliation:account:${account.accountId}`,
           type: "reconciliation",
           severity: "high",
           title: `Conciliação abaixo de ${Number(settings.reconciliationMinPct).toFixed(0)}% · ${account.accountName}`,
@@ -175,7 +280,7 @@ export async function GET() {
         const latest: any = latestByAccount.get(Number(account.id));
         if (latest && String(latest.closingDate) >= expectedDate) continue;
         alerts.push({
-          key: `closing:${settings.closingCadence}:${account.id}:${expectedDate}`,
+          key: `closing:account:${account.id}`,
           type: "closing_overdue",
           severity: "high",
           title: `Fechamento ${settings.closingCadence === "monthly" ? "mensal" : "diário"} atrasado · ${account.name}`,
@@ -194,19 +299,26 @@ export async function GET() {
     const severityOrder: Record<AlertSeverity, number> = { critical: 0, high: 1, medium: 2 };
     alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || b.amount - a.amount || a.title.localeCompare(b.title));
 
+    const generatedAt = new Date().toISOString();
+    const { enriched, history } = await synchronizeOccurrences(settings, alerts, generatedAt);
     return Response.json({
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       date: today,
       settings,
-      alerts,
+      alerts: enriched,
+      history,
       summary: {
-        total: alerts.length,
-        critical: alerts.filter((item) => item.severity === "critical").length,
-        high: alerts.filter((item) => item.severity === "high").length,
-        negativeForecast: alerts.filter((item) => item.type === "negative_forecast").length,
-        criticalTasks: alerts.filter((item) => item.type === "critical_task").length,
-        reconciliation: alerts.filter((item) => item.type === "reconciliation").length,
-        closingOverdue: alerts.filter((item) => item.type === "closing_overdue").length,
+        total: enriched.length,
+        critical: enriched.filter((item) => item.severity === "critical").length,
+        high: enriched.filter((item) => item.severity === "high").length,
+        acknowledged: enriched.filter((item) => item.acknowledgedAt).length,
+        unacknowledged: enriched.filter((item) => !item.acknowledgedAt).length,
+        negativeForecast: enriched.filter((item) => item.type === "negative_forecast").length,
+        criticalTasks: enriched.filter((item) => item.type === "critical_task").length,
+        reconciliation: enriched.filter((item) => item.type === "reconciliation").length,
+        closingOverdue: enriched.filter((item) => item.type === "closing_overdue").length,
+        historyCount: history.length,
+        resolvedHistory: history.filter((item) => item.status === "resolved").length,
       },
     });
   } catch (error) {
@@ -222,6 +334,41 @@ export async function PATCH(request: Request) {
   try {
     await ensureTreasuryAlertSettings();
     const payload = await request.json() as Record<string, unknown>;
+    const action = String(payload.action ?? "");
+
+    if (action === "acknowledge") {
+      const occurrenceId = Number(payload.occurrenceId);
+      const note = String(payload.note ?? "").trim().slice(0, 1000) || null;
+      if (!Number.isInteger(occurrenceId) || occurrenceId <= 0) {
+        return Response.json({ error: "Ocorrência de alerta inválida." }, { status: 400 });
+      }
+      const db = getDb();
+      const [occurrence] = await db.select().from(treasuryAlertOccurrences)
+        .where(and(eq(treasuryAlertOccurrences.id, occurrenceId), eq(treasuryAlertOccurrences.status, "active"))).limit(1);
+      if (!occurrence) return Response.json({ error: "O alerta não está mais ativo." }, { status: 409 });
+      if (occurrence.acknowledgedAt) {
+        return Response.json({ error: `Este alerta já foi reconhecido por ${occurrence.acknowledgedBy ?? "outro usuário"}.` }, { status: 409 });
+      }
+      const now = new Date().toISOString();
+      const [updated] = await db.update(treasuryAlertOccurrences).set({
+        acknowledgedBy: auth.email,
+        acknowledgedAt: now,
+        acknowledgementNote: note,
+        updatedAt: now,
+      }).where(eq(treasuryAlertOccurrences.id, occurrenceId)).returning();
+      await db.insert(treasuryAlertOccurrenceAudit).values({
+        occurrenceId,
+        action: "acknowledged",
+        performedBy: auth.email,
+        note: note ?? "Alerta reconhecido sem observação adicional.",
+      });
+      return Response.json({ occurrence: updated });
+    }
+
+    if (action && action !== "settings") {
+      return Response.json({ error: "Ação de alerta inválida." }, { status: 400 });
+    }
+
     const forecastHorizonDays = Number(payload.forecastHorizonDays);
     const reconciliationMinPct = Number(payload.reconciliationMinPct);
     const closingCadence = String(payload.closingCadence ?? "");
@@ -247,7 +394,7 @@ export async function PATCH(request: Request) {
       updatedAt: now,
     }).where(eq(treasuryAlertSettings.id, 1)).returning();
     return Response.json({ settings });
-  } catch {
-    return Response.json({ error: "Não foi possível salvar as regras de alerta." }, { status: 500 });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível atualizar os alertas executivos." }, { status: 500 });
   }
 }
