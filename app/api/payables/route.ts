@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
 import { ensureFinancialLedger, isDateKey, ledgerSourceKey, todaySaoPaulo } from "@/app/financial-ledger";
+import { releaseServiceTechnicianPayable } from "@/app/service-technician-payable-sync";
 import { movementClosedPeriodResponse } from "@/app/treasury-closing-lock";
 import { getDb } from "@/db";
 import { companies, payables, suppliers } from "@/db/schema";
@@ -111,9 +112,13 @@ export async function PATCH(request: Request) {
     if (action === "cancel") {
       if (current.paidAmount > 0) return Response.json({ error: "Estorne o pagamento antes de cancelar a conta." }, { status: 400 });
       const [payable] = await db.update(payables).set({ status: "cancelado", updatedAt: new Date().toISOString() }).where(eq(payables.id, id)).returning();
-      return Response.json({ payable });
+      const technicianRelease = await releaseServiceTechnicianPayable(id, auth.email);
+      return Response.json({ payable, technicianRelease });
     }
     if (action === "reopen") {
+      if (current.groupNumber.startsWith("TEC-")) {
+        return Response.json({ error: "Títulos originados de técnicos devem ser regenerados pelo fechamento ou pela apuração da OS, preservando a rastreabilidade. Não reabra o título cancelado manualmente." }, { status: 409 });
+      }
       const [payable] = await db.update(payables).set({ status: "aberto", updatedAt: new Date().toISOString() }).where(eq(payables.id, id)).returning();
       return Response.json({ payable });
     }
