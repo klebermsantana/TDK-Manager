@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { users } from "./schema";
 import { treasuryBankAccounts } from "./treasury-schema";
 
 export const treasuryClosingRecords = sqliteTable(
@@ -51,5 +52,54 @@ export const treasuryClosingAudit = sqliteTable(
   (table) => [
     index("idx_treasury_closing_audit_closing").on(table.closingId, table.createdAt),
     index("idx_treasury_closing_audit_account").on(table.bankAccountId, table.createdAt),
+  ],
+);
+
+export const treasuryClosingTasks = sqliteTable(
+  "treasury_closing_tasks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    issueKey: text("issue_key").notNull().unique(),
+    scope: text("scope").notNull().default("account"),
+    bankAccountId: integer("bank_account_id").references(() => treasuryBankAccounts.id, { onDelete: "cascade" }),
+    issueType: text("issue_type").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    priority: text("priority").notNull().default("high"),
+    affectedAmount: real("affected_amount").notNull().default(0),
+    status: text("status").notNull().default("open"),
+    assignedUserId: integer("assigned_user_id").references(() => users.id),
+    assignedName: text("assigned_name"),
+    assignedEmail: text("assigned_email"),
+    sourceActive: integer("source_active", { mode: "boolean" }).notNull().default(true),
+    firstSeenDate: text("first_seen_date").notNull(),
+    lastSeenDate: text("last_seen_date").notNull(),
+    resolvedAt: text("resolved_at"),
+    resolvedBy: text("resolved_by"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_closing_tasks_status_priority").on(table.status, table.priority),
+    index("idx_treasury_closing_tasks_account").on(table.bankAccountId, table.status),
+    index("idx_treasury_closing_tasks_assignee").on(table.assignedUserId, table.status),
+  ],
+);
+
+export const treasuryClosingTaskAudit = sqliteTable(
+  "treasury_closing_task_audit",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    taskId: integer("task_id").notNull().references(() => treasuryClosingTasks.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    performedBy: text("performed_by").notNull(),
+    note: text("note"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_closing_task_audit_task").on(table.taskId, table.createdAt),
   ],
 );
