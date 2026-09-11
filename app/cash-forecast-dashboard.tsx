@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+type RealizedEvent = { id: number; eventDate: string; amount: number; eventType: string; source: string };
 type CashEntry = {
   id: string;
   billingId: number;
@@ -15,6 +16,7 @@ type CashEntry = {
   receivedAmount: number;
   openAmount: number;
   paymentDate: string | null;
+  realizedEvents: RealizedEvent[];
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +29,7 @@ type CashPayload = {
     billingsWithoutInstallments: number;
     billingsWithoutDueDate: number;
     receivedWithoutPaymentDate: number;
+    legacySnapshotEvents: number;
   };
 };
 
@@ -81,6 +84,12 @@ function futureMonths(count: number) {
     const date = new Date(today.getFullYear(), today.getMonth() + index, 1);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
   });
+}
+
+function realizedInMonth(items: CashEntry[], month: string) {
+  return items.reduce((total, item) => total + item.realizedEvents
+    .filter((event) => event.eventDate.startsWith(month))
+    .reduce((sum, event) => sum + Number(event.amount), 0), 0);
 }
 
 function riskLabel(oldestDays: number, overdue: number) {
@@ -161,9 +170,7 @@ export function CashForecastDashboard() {
     const outstanding = openEntries.reduce((total, item) => total + item.openAmount, 0);
     const overdue = overdueEntries.reduce((total, item) => total + item.openAmount, 0);
     const horizonAmount = futureEntries.reduce((total, item) => total + item.openAmount, 0);
-    const receivedMonth = entries
-      .filter((item) => item.paymentDate?.startsWith(currentMonth))
-      .reduce((total, item) => total + item.receivedAmount, 0);
+    const receivedMonth = realizedInMonth(entries, currentMonth);
     const noDue = openEntries.filter((item) => !item.dueDate).reduce((total, item) => total + item.openAmount, 0);
     const fallback = openEntries.filter((item) => item.source === "billing").length;
     return {
@@ -230,10 +237,10 @@ export function CashForecastDashboard() {
       const next30 = openItems
         .filter((item) => item.dueDate && item.dueDate >= today && item.dueDate <= addDaysKey(30))
         .reduce((total, item) => total + item.openAmount, 0);
-      const receivedMonth = items.filter((item) => item.paymentDate?.startsWith(currentMonth)).reduce((total, item) => total + item.receivedAmount, 0);
+      const receivedMonth = realizedInMonth(items, currentMonth);
       const oldestDays = Math.max(0, ...overdueItems.map((item) => daysLate(item.dueDate)));
       return { name, outstanding, overdue, next30, receivedMonth, oldestDays, openCount: openItems.length, risk: riskLabel(oldestDays, overdue) };
-    }).filter((item) => item.outstanding > 0 || item.receivedMonth > 0)
+    }).filter((item) => item.outstanding > 0 || item.receivedMonth !== 0)
       .sort((a, b) => b.overdue - a.overdue || b.outstanding - a.outstanding);
   }, [payload]);
 
@@ -287,7 +294,7 @@ export function CashForecastDashboard() {
           <article><span>Total em aberto</span><strong>{money(summary.outstanding)}</strong><small>saldo atual de recebíveis</small></article>
           <article className={summary.overdue > 0 ? "danger" : "good"}><span>Vencido</span><strong>{money(summary.overdue)}</strong><small>{summary.overdueCount} parcela(s) · {percent(summary.overdueRatio)} do aberto</small></article>
           <article><span>Previsto no horizonte</span><strong>{money(summary.horizonAmount)}</strong><small>{summary.horizonCount} vencimento(s) nos próximos {horizon} dias</small></article>
-          <article><span>Recebido no mês</span><strong>{money(summary.receivedMonth)}</strong><small>com data de pagamento registrada</small></article>
+          <article><span>Recebido no mês</span><strong>{money(summary.receivedMonth)}</strong><small>somatório dos eventos do razão financeiro</small></article>
           <article className={concentration !== null && concentration >= 60 ? "warning" : ""}><span>Concentração Top 3</span><strong>{percent(concentration)}</strong><small>participação dos 3 maiores saldos em aberto</small></article>
           <article className={summary.noDueCount || summary.fallback ? "warning" : "good"}><span>Qualidade do forecast</span><strong>{summary.noDueCount + summary.fallback}</strong><small>{summary.noDueCount} sem vencimento · {summary.fallback} faturamento(s) sem parcelas</small></article>
         </div>
@@ -342,7 +349,7 @@ export function CashForecastDashboard() {
 
         <footer className="cash-forecast-footer">
           <span>Forecast contratual: não aplica probabilidade artificial de recebimento.</span>
-          <span>{payload?.dataQuality.receivedWithoutPaymentDate ? `${payload.dataQuality.receivedWithoutPaymentDate} recebimento(s) sem data de pagamento não entram no realizado mensal.` : "Datas de pagamento registradas alimentam o realizado mensal."}</span>
+          <span>{payload?.dataQuality.legacySnapshotEvents ? `${payload.dataQuality.legacySnapshotEvents} evento(s) anterior(es) foram preservados como snapshot legado; novos pagamentos ficam individualizados por data.` : "O realizado mensal já usa o razão financeiro por eventos."}</span>
         </footer>
       </section>
     </div> : null}
