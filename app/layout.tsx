@@ -21,6 +21,7 @@ import "./treasury-executive-alerts.css";
 import "./treasury-alert-responsibility.css";
 import "./treasury-my-work-dashboard.css";
 import "./treasury-productivity-dashboard.css";
+import "./treasury-capacity-dashboard.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
@@ -49,6 +50,7 @@ import { TreasuryExecutiveAlerts } from "./treasury-executive-alerts";
 import { TreasuryAlertResponsibility } from "./treasury-alert-responsibility";
 import { TreasuryMyWorkDashboard } from "./treasury-my-work-dashboard";
 import { TreasuryProductivityDashboard } from "./treasury-productivity-dashboard";
+import { TreasuryCapacityDashboard } from "./treasury-capacity-dashboard";
 import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
 import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
@@ -95,6 +97,7 @@ export default function RootLayout({
         <TreasuryAlertResponsibility />
         <TreasuryMyWorkDashboard />
         <TreasuryProductivityDashboard />
+        <TreasuryCapacityDashboard />
         <TreasuryDashboard />
         <TreasuryReconciliationDashboard />
         <TreasuryReconciliationSplitDashboard />
