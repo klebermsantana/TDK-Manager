@@ -316,6 +316,13 @@
       "when": 1789149390759,
       "tag": "0044_fixed_colonel_america",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1789150030621,
+      "tag": "0045_demonic_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }
