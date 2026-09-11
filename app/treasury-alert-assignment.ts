@@ -6,7 +6,14 @@ import {
   treasuryAlertAssignmentRules,
   treasuryAlertOccurrenceAudit,
   treasuryAlertOccurrences,
+  treasuryClosingTasks,
 } from "@/db/treasury-closing-schema";
+import {
+  ensureTreasuryRoutingUsers,
+  isTreasuryRoutingEligible,
+  listTreasuryRoutingProfiles,
+  routingDomainForAlertType,
+} from "@/app/treasury-routing-runtime";
 
 type AssignmentSource = "manual" | "take" | "escalation_rule";
 const ownerEmail = "kleber.santana@tecnodesk.com.br";
@@ -116,16 +123,54 @@ export async function assignTreasuryAlertOccurrence(args: {
 export async function assignDefaultOnEscalation(occurrence: typeof treasuryAlertOccurrences.$inferSelect) {
   if (occurrence.status !== "active" || occurrence.assignedUserId) return occurrence;
   if (!occurrence.ackEscalatedAt && !occurrence.resolutionEscalatedAt) return occurrence;
-  const [rule] = await getDb().select().from(treasuryAlertAssignmentRules)
+  const db = getDb();
+  const [rule] = await db.select().from(treasuryAlertAssignmentRules)
     .where(eq(treasuryAlertAssignmentRules.alertType, occurrence.alertType)).limit(1);
   if (!rule?.active || !rule.assignedUserId) return occurrence;
+
+  const domain = routingDomainForAlertType(occurrence.alertType);
+  const eligibleConfigured = await isTreasuryRoutingEligible(rule.assignedUserId, domain);
+  let targetUserId: number | null = eligibleConfigured ? rule.assignedUserId : null;
+  let fallbackNote = "";
+
+  if (!targetUserId) {
+    const candidates = await listTreasuryAlertUsers();
+    await ensureTreasuryRoutingUsers(candidates);
+    const profiles = await listTreasuryRoutingProfiles(candidates);
+    const [activeAlerts, activeTasks] = await Promise.all([
+      db.select().from(treasuryAlertOccurrences),
+      db.select().from(treasuryClosingTasks),
+    ]);
+    const loadByUser = new Map<number, number>();
+    for (const user of candidates) loadByUser.set(user.id, 0);
+    for (const row of activeAlerts.filter((item) => item.status === "active" && item.assignedUserId)) {
+      loadByUser.set(row.assignedUserId!, (loadByUser.get(row.assignedUserId!) ?? 0) + (row.severity === "critical" ? 4 : row.severity === "high" ? 3 : 2));
+    }
+    for (const row of activeTasks.filter((item) => item.sourceActive && item.status !== "resolved" && item.assignedUserId)) {
+      loadByUser.set(row.assignedUserId!, (loadByUser.get(row.assignedUserId!) ?? 0) + (row.priority === "critical" ? 3 : row.priority === "high" ? 2 : 1));
+    }
+    const routed = profiles
+      .filter((profile) => profile.availability !== "unavailable" && Number(profile.skills[domain] ?? 0) > 0)
+      .sort((a, b) => {
+        const availabilityA = a.availability === "available" ? 0 : 1;
+        const availabilityB = b.availability === "available" ? 0 : 1;
+        return availabilityA - availabilityB
+          || Number(b.skills[domain] ?? 0) - Number(a.skills[domain] ?? 0)
+          || (loadByUser.get(a.id) ?? 0) - (loadByUser.get(b.id) ?? 0)
+          || a.name.localeCompare(b.name);
+      });
+    targetUserId = routed[0]?.id ?? null;
+    if (targetUserId) fallbackNote = " O responsável padrão estava indisponível ou sem competência para o tipo do alerta; foi usado o melhor substituto elegível pela matriz de roteamento.";
+  }
+
+  if (!targetUserId) return occurrence;
   try {
     return await assignTreasuryAlertOccurrence({
       occurrenceId: occurrence.id,
-      userId: rule.assignedUserId,
+      userId: targetUserId,
       source: "escalation_rule",
       performedBy: "system",
-      note: `Responsável atribuído automaticamente pela regra do tipo ${occurrence.alertType} após escalonamento.`,
+      note: `Responsável atribuído automaticamente após escalonamento, respeitando competência e disponibilidade.${fallbackNote}`,
     });
   } catch {
     return occurrence;
