@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { ensureTreasuryAlertSettings } from "@/app/treasury-executive-alerts-runtime";
 import { requireTreasuryAccess } from "@/app/treasury-runtime";
@@ -51,6 +50,13 @@ export async function GET() {
         occurrenceId: item.id,
         status: item.status,
         alertType: item.alertType,
+        severity: item.severity,
+        title: item.title,
+        accountName: item.accountName,
+        firstSeenAt: item.firstSeenAt,
+        acknowledgedAt: item.acknowledgedAt,
+        ackEscalatedAt: item.ackEscalatedAt,
+        resolutionEscalatedAt: item.resolutionEscalatedAt,
         assignedUserId: item.assignedUserId,
         assignedName: item.assignedName,
         assignedEmail: item.assignedEmail,
