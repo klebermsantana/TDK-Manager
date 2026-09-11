@@ -9,6 +9,7 @@ export default defineConfig({
     "./db/goal-scope-schema.ts",
     "./db/treasury-schema.ts",
     "./db/treasury-closing-schema.ts",
+    "./db/treasury-routing-schema.ts",
   ],
   dialect: "sqlite",
 });
