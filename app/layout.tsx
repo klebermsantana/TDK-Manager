@@ -23,6 +23,7 @@ import "./treasury-my-work-dashboard.css";
 import "./treasury-productivity-dashboard.css";
 import "./treasury-capacity-dashboard.css";
 import "./treasury-routing-profiles-dashboard.css";
+import "./treasury-routing-schedules-dashboard.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
@@ -53,6 +54,7 @@ import { TreasuryMyWorkDashboard } from "./treasury-my-work-dashboard";
 import { TreasuryProductivityDashboard } from "./treasury-productivity-dashboard";
 import { TreasuryCapacityDashboard } from "./treasury-capacity-dashboard";
 import { TreasuryRoutingProfilesDashboard } from "./treasury-routing-profiles-dashboard";
+import { TreasuryRoutingSchedulesDashboard } from "./treasury-routing-schedules-dashboard";
 import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
 import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
@@ -101,6 +103,7 @@ export default function RootLayout({
         <TreasuryProductivityDashboard />
         <TreasuryCapacityDashboard />
         <TreasuryRoutingProfilesDashboard />
+        <TreasuryRoutingSchedulesDashboard />
         <TreasuryDashboard />
         <TreasuryReconciliationDashboard />
         <TreasuryReconciliationSplitDashboard />
