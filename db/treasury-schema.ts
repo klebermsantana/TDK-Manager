@@ -158,3 +158,29 @@ export const treasuryReconciliationAudit = sqliteTable(
     index("idx_treasury_reconciliation_audit_account").on(table.bankAccountId, table.createdAt),
   ],
 );
+
+export const treasuryFinancialEvents = sqliteTable(
+  "treasury_financial_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    movementType: text("movement_type").notNull(),
+    movementId: integer("movement_id").notNull(),
+    direction: text("direction").notNull(),
+    eventType: text("event_type").notNull(),
+    amount: real("amount").notNull(),
+    eventDate: text("event_date").notNull(),
+    source: text("source").notNull(),
+    sourceKey: text("source_key").notNull(),
+    bankAccountId: integer("bank_account_id").references(() => treasuryBankAccounts.id, { onDelete: "set null" }),
+    statementTransactionId: integer("statement_transaction_id").references(() => treasuryStatementTransactions.id, { onDelete: "set null" }),
+    performedBy: text("performed_by").notNull(),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("uq_treasury_financial_event_source").on(table.sourceKey),
+    index("idx_treasury_financial_event_movement_date").on(table.movementType, table.movementId, table.eventDate),
+    index("idx_treasury_financial_event_account_date").on(table.bankAccountId, table.eventDate),
+    index("idx_treasury_financial_event_statement").on(table.statementTransactionId),
+  ],
+);
