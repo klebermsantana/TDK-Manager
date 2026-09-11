@@ -323,6 +323,13 @@
       "when": 1789150030621,
       "tag": "0045_demonic_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1789150488595,
+      "tag": "0046_colorful_onslaught",
+      "breakpoints": true
     }
   ]
 }
