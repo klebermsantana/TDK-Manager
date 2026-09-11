@@ -13,6 +13,7 @@ import { treasuryAlertOccurrenceAudit, treasuryAlertOccurrences, treasuryAlertSe
 
 type AlertSeverity = "critical" | "high" | "medium";
 type AlertType = "negative_forecast" | "critical_task" | "reconciliation" | "closing_overdue";
+type EscalationStage = "ack_overdue" | "resolution_overdue" | null;
 type ExecutiveAlert = {
   key: string;
   type: AlertType;
@@ -27,6 +28,7 @@ type ExecutiveAlert = {
 };
 
 const dayMs = 86400000;
+const minuteMs = 60000;
 const dateAtNoon = (key: string) => new Date(`${key}T12:00:00Z`);
 const keyOf = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -48,6 +50,19 @@ function addDays(today: string, days: number) {
   const date = dateAtNoon(today);
   date.setTime(date.getTime() + days * dayMs);
   return keyOf(date);
+}
+
+function addMinutes(value: string, minutes: number) {
+  return new Date(new Date(value).getTime() + minutes * minuteMs).toISOString();
+}
+
+function minutesBetween(start: string, end: string) {
+  return Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / minuteMs);
+}
+
+function averageMinutes(values: number[]) {
+  if (!values.length) return null;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
 async function jsonOf(response: Response) {
@@ -74,6 +89,69 @@ function monitoringEnabled(settings: typeof treasuryAlertSettings.$inferSelect, 
   return false;
 }
 
+function ackSlaMinutes(settings: typeof treasuryAlertSettings.$inferSelect, severity: string) {
+  return severity === "critical" ? settings.criticalAckSlaMinutes : settings.highAckSlaMinutes;
+}
+
+async function applyEscalation(
+  settings: typeof treasuryAlertSettings.$inferSelect,
+  occurrence: typeof treasuryAlertOccurrences.$inferSelect,
+  now: string,
+) {
+  if (!settings.escalationEnabled || occurrence.status !== "active") return occurrence;
+  const db = getDb();
+  let current = occurrence;
+
+  if (!current.acknowledgedAt) {
+    const limit = ackSlaMinutes(settings, current.severity);
+    if (minutesBetween(current.firstSeenAt, now) >= limit && !current.ackEscalatedAt) {
+      [current] = await db.update(treasuryAlertOccurrences).set({
+        ackEscalatedAt: now,
+        updatedAt: now,
+      }).where(eq(treasuryAlertOccurrences.id, current.id)).returning();
+      await db.insert(treasuryAlertOccurrenceAudit).values({
+        occurrenceId: current.id,
+        action: "ack_sla_breached",
+        performedBy: "system",
+        note: `SLA de ciência excedido: ${limit} minuto(s) para alerta ${current.severity}.`,
+      });
+    }
+    return current;
+  }
+
+  if (minutesBetween(current.acknowledgedAt, now) >= settings.resolutionSlaMinutes && !current.resolutionEscalatedAt) {
+    [current] = await db.update(treasuryAlertOccurrences).set({
+      resolutionEscalatedAt: now,
+      updatedAt: now,
+    }).where(eq(treasuryAlertOccurrences.id, current.id)).returning();
+    await db.insert(treasuryAlertOccurrenceAudit).values({
+      occurrenceId: current.id,
+      action: "resolution_sla_breached",
+      performedBy: "system",
+      note: `SLA operacional excedido: ${settings.resolutionSlaMinutes} minuto(s) após a ciência sem normalização.`,
+    });
+  }
+  return current;
+}
+
+function escalationInfo(
+  settings: typeof treasuryAlertSettings.$inferSelect,
+  occurrence: typeof treasuryAlertOccurrences.$inferSelect,
+  now: string,
+) {
+  const ackLimit = ackSlaMinutes(settings, occurrence.severity);
+  const ackDueAt = addMinutes(occurrence.firstSeenAt, ackLimit);
+  const resolutionDueAt = occurrence.acknowledgedAt ? addMinutes(occurrence.acknowledgedAt, settings.resolutionSlaMinutes) : null;
+  let stage: EscalationStage = null;
+  if (settings.escalationEnabled) {
+    if (!occurrence.acknowledgedAt && occurrence.ackEscalatedAt) stage = "ack_overdue";
+    if (occurrence.acknowledgedAt && occurrence.resolutionEscalatedAt) stage = "resolution_overdue";
+  }
+  const dueAt = occurrence.acknowledgedAt ? resolutionDueAt : ackDueAt;
+  const remainingMinutes = dueAt ? Math.ceil((new Date(dueAt).getTime() - new Date(now).getTime()) / minuteMs) : null;
+  return { stage, ackDueAt, resolutionDueAt, dueAt, remainingMinutes };
+}
+
 async function synchronizeOccurrences(
   settings: typeof treasuryAlertSettings.$inferSelect,
   alerts: ExecutiveAlert[],
@@ -91,6 +169,13 @@ async function synchronizeOccurrences(
     acknowledgedBy: string | null;
     acknowledgedAt: string | null;
     acknowledgementNote: string | null;
+    ackEscalatedAt: string | null;
+    resolutionEscalatedAt: string | null;
+    escalationStage: EscalationStage;
+    ackDueAt: string;
+    resolutionDueAt: string | null;
+    slaDueAt: string | null;
+    slaRemainingMinutes: number | null;
   }> = [];
 
   for (const alert of alerts) {
@@ -134,6 +219,8 @@ async function synchronizeOccurrences(
       }).where(eq(treasuryAlertOccurrences.id, occurrence.id)).returning();
     }
 
+    occurrence = await applyEscalation(settings, occurrence, now);
+    const escalation = escalationInfo(settings, occurrence, now);
     enriched.push({
       ...alert,
       occurrenceId: occurrence.id,
@@ -142,6 +229,13 @@ async function synchronizeOccurrences(
       acknowledgedBy: occurrence.acknowledgedBy,
       acknowledgedAt: occurrence.acknowledgedAt,
       acknowledgementNote: occurrence.acknowledgementNote,
+      ackEscalatedAt: occurrence.ackEscalatedAt,
+      resolutionEscalatedAt: occurrence.resolutionEscalatedAt,
+      escalationStage: escalation.stage,
+      ackDueAt: escalation.ackDueAt,
+      resolutionDueAt: escalation.resolutionDueAt,
+      slaDueAt: escalation.dueAt,
+      slaRemainingMinutes: escalation.remainingMinutes,
     });
   }
 
@@ -167,7 +261,22 @@ async function synchronizeOccurrences(
   const history = await db.select().from(treasuryAlertOccurrences)
     .orderBy(desc(treasuryAlertOccurrences.firstSeenAt), desc(treasuryAlertOccurrences.id))
     .limit(100);
-  return { enriched, history };
+  const acknowledgedDurations = history
+    .filter((row) => row.acknowledgedAt)
+    .map((row) => minutesBetween(row.firstSeenAt, row.acknowledgedAt!));
+  const normalizedDurations = history
+    .filter((row) => row.resolvedAt && row.resolutionReason === "condition_cleared")
+    .map((row) => minutesBetween(row.firstSeenAt, row.resolvedAt!));
+  const slaMetrics = {
+    sampleSize: history.length,
+    mttaMinutes: averageMinutes(acknowledgedDurations),
+    mttrMinutes: averageMinutes(normalizedDurations),
+    acknowledgementSamples: acknowledgedDurations.length,
+    normalizationSamples: normalizedDurations.length,
+    ackSlaBreaches: history.filter((row) => row.ackEscalatedAt).length,
+    resolutionSlaBreaches: history.filter((row) => row.resolutionEscalatedAt).length,
+  };
+  return { enriched, history, slaMetrics };
 }
 
 export async function GET() {
@@ -300,19 +409,23 @@ export async function GET() {
     alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity] || b.amount - a.amount || a.title.localeCompare(b.title));
 
     const generatedAt = new Date().toISOString();
-    const { enriched, history } = await synchronizeOccurrences(settings, alerts, generatedAt);
+    const { enriched, history, slaMetrics } = await synchronizeOccurrences(settings, alerts, generatedAt);
     return Response.json({
       generatedAt,
       date: today,
       settings,
       alerts: enriched,
       history,
+      slaMetrics,
       summary: {
         total: enriched.length,
         critical: enriched.filter((item) => item.severity === "critical").length,
         high: enriched.filter((item) => item.severity === "high").length,
         acknowledged: enriched.filter((item) => item.acknowledgedAt).length,
         unacknowledged: enriched.filter((item) => !item.acknowledgedAt).length,
+        escalated: enriched.filter((item) => item.escalationStage).length,
+        ackOverdue: enriched.filter((item) => item.escalationStage === "ack_overdue").length,
+        resolutionOverdue: enriched.filter((item) => item.escalationStage === "resolution_overdue").length,
         negativeForecast: enriched.filter((item) => item.type === "negative_forecast").length,
         criticalTasks: enriched.filter((item) => item.type === "critical_task").length,
         reconciliation: enriched.filter((item) => item.type === "reconciliation").length,
@@ -372,6 +485,9 @@ export async function PATCH(request: Request) {
     const forecastHorizonDays = Number(payload.forecastHorizonDays);
     const reconciliationMinPct = Number(payload.reconciliationMinPct);
     const closingCadence = String(payload.closingCadence ?? "");
+    const criticalAckSlaMinutes = Number(payload.criticalAckSlaMinutes);
+    const highAckSlaMinutes = Number(payload.highAckSlaMinutes);
+    const resolutionSlaMinutes = Number(payload.resolutionSlaMinutes);
     if (![7, 30, 60, 90].includes(forecastHorizonDays)) {
       return Response.json({ error: "Horizonte inválido. Use 7, 30, 60 ou 90 dias." }, { status: 400 });
     }
@@ -380,6 +496,15 @@ export async function PATCH(request: Request) {
     }
     if (!new Set(["daily", "monthly"]).has(closingCadence)) {
       return Response.json({ error: "Regra de fechamento inválida." }, { status: 400 });
+    }
+    if (!Number.isInteger(criticalAckSlaMinutes) || criticalAckSlaMinutes < 5 || criticalAckSlaMinutes > 1440) {
+      return Response.json({ error: "SLA de ciência crítica deve ficar entre 5 e 1.440 minutos." }, { status: 400 });
+    }
+    if (!Number.isInteger(highAckSlaMinutes) || highAckSlaMinutes < 5 || highAckSlaMinutes > 2880) {
+      return Response.json({ error: "SLA de ciência alta deve ficar entre 5 e 2.880 minutos." }, { status: 400 });
+    }
+    if (!Number.isInteger(resolutionSlaMinutes) || resolutionSlaMinutes < 15 || resolutionSlaMinutes > 10080) {
+      return Response.json({ error: "SLA operacional deve ficar entre 15 minutos e 7 dias." }, { status: 400 });
     }
     const now = new Date().toISOString();
     const [settings] = await getDb().update(treasuryAlertSettings).set({
@@ -390,6 +515,10 @@ export async function PATCH(request: Request) {
       criticalTasksEnabled: payload.criticalTasksEnabled !== false,
       reconciliationEnabled: payload.reconciliationEnabled !== false,
       closingOverdueEnabled: payload.closingOverdueEnabled !== false,
+      escalationEnabled: payload.escalationEnabled !== false,
+      criticalAckSlaMinutes,
+      highAckSlaMinutes,
+      resolutionSlaMinutes,
       updatedBy: auth.email,
       updatedAt: now,
     }).where(eq(treasuryAlertSettings.id, 1)).returning();
