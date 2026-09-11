@@ -365,6 +365,13 @@
       "when": 1789158617921,
       "tag": "0051_slow_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1789159615824,
+      "tag": "0052_certain_vulcan",
+      "breakpoints": true
     }
   ]
 }
