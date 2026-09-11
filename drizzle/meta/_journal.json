@@ -372,6 +372,13 @@
       "when": 1789159615824,
       "tag": "0052_certain_vulcan",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1789159936205,
+      "tag": "0053_vengeful_master_chief",
+      "breakpoints": true
     }
   ]
 }
