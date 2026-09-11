@@ -6,6 +6,7 @@ import * as profitabilitySchema from "./profitability-schema";
 import * as goalScopeSchema from "./goal-scope-schema";
 import * as treasurySchema from "./treasury-schema";
 import * as treasuryClosingSchema from "./treasury-closing-schema";
+import * as treasuryRoutingSchema from "./treasury-routing-schema";
 
 const schema = {
   ...coreSchema,
@@ -14,6 +15,7 @@ const schema = {
   ...goalScopeSchema,
   ...treasurySchema,
   ...treasuryClosingSchema,
+  ...treasuryRoutingSchema,
 };
 
 export function getDb() {
