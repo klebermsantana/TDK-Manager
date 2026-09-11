@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./schema";
 
 export const treasuryRoutingProfiles = sqliteTable(
@@ -92,4 +92,60 @@ export const treasuryRoutingScheduleAudit = sqliteTable(
     index("idx_treasury_routing_schedule_audit_schedule").on(table.scheduleId, table.createdAt),
     index("idx_treasury_routing_schedule_audit_user").on(table.userId, table.createdAt),
   ],
+);
+
+export const treasuryCapacityAlertSettings = sqliteTable("treasury_capacity_alert_settings", {
+  id: integer("id").primaryKey(),
+  lookaheadDays: integer("lookahead_days").notNull().default(7),
+  lowCapacityThresholdPct: real("low_capacity_threshold_pct").notNull().default(70),
+  uncoveredEnabled: integer("uncovered_enabled", { mode: "boolean" }).notNull().default(true),
+  singlePointEnabled: integer("single_point_enabled", { mode: "boolean" }).notNull().default(true),
+  absenceWithoutCoverageEnabled: integer("absence_without_coverage_enabled", { mode: "boolean" }).notNull().default(true),
+  lowCapacityEnabled: integer("low_capacity_enabled", { mode: "boolean" }).notNull().default(true),
+  updatedBy: text("updated_by"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const treasuryCapacityAlertOccurrences = sqliteTable(
+  "treasury_capacity_alert_occurrences",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    alertKey: text("alert_key").notNull(),
+    alertType: text("alert_type").notNull(),
+    severity: text("severity").notNull(),
+    riskDate: text("risk_date").notNull(),
+    domain: text("domain"),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    status: text("status").notNull().default("active"),
+    firstSeenAt: text("first_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    acknowledgedBy: text("acknowledged_by"),
+    acknowledgedAt: text("acknowledged_at"),
+    acknowledgementNote: text("acknowledgement_note"),
+    resolvedAt: text("resolved_at"),
+    resolutionReason: text("resolution_reason"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_capacity_alert_key_status").on(table.alertKey, table.status),
+    index("idx_treasury_capacity_alert_status_severity").on(table.status, table.severity),
+    index("idx_treasury_capacity_alert_risk_date").on(table.riskDate, table.status),
+  ],
+);
+
+export const treasuryCapacityAlertAudit = sqliteTable(
+  "treasury_capacity_alert_audit",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurrenceId: integer("occurrence_id").notNull().references(() => treasuryCapacityAlertOccurrences.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    performedBy: text("performed_by").notNull(),
+    note: text("note"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("idx_treasury_capacity_alert_audit_occurrence").on(table.occurrenceId, table.createdAt)],
 );
