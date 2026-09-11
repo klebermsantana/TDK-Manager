@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { requirePermission } from "@/app/authorization";
+import { ensureServiceTechnicianTables } from "@/app/service-technician-runtime";
 import { getDb } from "@/db";
 import {
   catalogItems,
@@ -13,6 +14,7 @@ import {
   serviceCalls,
 } from "@/db/schema";
 import { serviceCallFinancials } from "@/db/profitability-schema";
+import { serviceCallTechnicians } from "@/db/service-technician-schema";
 
 async function ensureFinancialTable() {
   const db = getDb();
@@ -50,8 +52,9 @@ export async function GET() {
   if (denied) return denied;
   try {
     await ensureFinancialTable();
+    await ensureServiceTechnicianTables();
     const db = getDb();
-    const [calls, materials, services, equipment, expenses, financials, catalog, equipmentCatalog, saleRows] = await Promise.all([
+    const [calls, materials, services, equipment, expenses, financials, catalog, equipmentCatalog, saleRows, technicianAssignments] = await Promise.all([
       db.select().from(serviceCalls),
       db.select().from(serviceCallMaterials),
       db.select().from(serviceCallServices),
@@ -61,6 +64,7 @@ export async function GET() {
       db.select().from(catalogItems),
       db.select().from(equipmentItems),
       db.select().from(sales),
+      db.select().from(serviceCallTechnicians),
     ]);
 
     const catalogById = new Map(catalog.map((item) => [item.id, item]));
@@ -77,6 +81,7 @@ export async function GET() {
       const callServices = services.filter((item) => item.serviceCallId === call.id);
       const callEquipment = equipment.filter((item) => item.serviceCallId === call.id);
       const callExpenses = expenses.filter((item) => item.serviceCallId === call.id);
+      const callTechnicians = technicianAssignments.filter((item) => item.serviceCallId === call.id && item.assignmentStatus !== "cancelled" && item.apportionmentStatus !== "cancelled");
 
       const materialCost = sum(callMaterials.map((item) => item.quantity * item.unitCost));
       const materialRevenue = sum(callMaterials.map((item) => item.quantity * item.unitPrice));
@@ -85,7 +90,16 @@ export async function GET() {
       const equipmentCost = sum(callEquipment.map((item) => item.quantity * (equipmentById.get(item.equipmentItemId ?? -1)?.cost ?? 0)));
       const childExpenses = sum(callExpenses.map((item) => item.amount));
       const expenseCost = childExpenses > 0 ? childExpenses : Math.max(0, call.expensesAmount || 0);
-      const totalCost = materialCost + serviceCost + equipmentCost + expenseCost;
+      const realizedLaborCost = sum(callTechnicians
+        .filter((item) => ["approved", "payable_generated"].includes(item.apportionmentStatus))
+        .map((item) => Math.max(0, item.realizedCost ?? item.expectedCost ?? 0)));
+      const pendingLaborCost = sum(callTechnicians
+        .filter((item) => !["approved", "payable_generated"].includes(item.apportionmentStatus))
+        .map((item) => Math.max(0, item.realizedCost ?? item.expectedCost ?? 0)));
+      const laborCost = realizedLaborCost + pendingLaborCost;
+      const laborPendingApproval = callTechnicians.filter((item) => !["approved", "payable_generated"].includes(item.apportionmentStatus)).length;
+      const laborEstimated = laborPendingApproval > 0;
+      const totalCost = materialCost + serviceCost + equipmentCost + expenseCost + laborCost;
       const derivedItemRevenue = materialRevenue + serviceRevenue;
 
       const financial = financialByCall.get(call.id);
@@ -162,6 +176,12 @@ export async function GET() {
         serviceCost,
         equipmentCost,
         expenseCost,
+        laborCost,
+        realizedLaborCost,
+        pendingLaborCost,
+        laborPendingApproval,
+        laborEstimated,
+        technicianCount: callTechnicians.length,
         totalCost,
         revenueAmount,
         revenueSource,
@@ -190,6 +210,9 @@ export async function GET() {
     const totalRevenue = sum(allocated.map((row) => row.revenueAmount ?? 0));
     const allocatedCost = sum(allocated.map((row) => row.totalCost));
     const totalCost = sum(rows.map((row) => row.totalCost));
+    const totalLaborCost = sum(rows.map((row) => row.laborCost));
+    const totalRealizedLaborCost = sum(rows.map((row) => row.realizedLaborCost));
+    const totalPendingLaborCost = sum(rows.map((row) => row.pendingLaborCost));
     const totalMargin = totalRevenue - allocatedCost;
     const totalPlannedMargin = sum(planned.map((row) => row.plannedMarginAmount ?? 0));
     const totalMarginVariance = sum(comparable.map((row) => row.marginVariance ?? 0));
@@ -199,6 +222,10 @@ export async function GET() {
       summary: {
         totalRevenue,
         totalCost,
+        totalLaborCost,
+        totalRealizedLaborCost,
+        totalPendingLaborCost,
+        laborPendingApproval: sum(rows.map((row) => row.laborPendingApproval)),
         allocatedCost,
         totalMargin,
         marginPercent: totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : null,
