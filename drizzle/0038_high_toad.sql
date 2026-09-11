@@ -1,0 +1,2 @@
+DROP INDEX `idx_treasury_statement_transaction_match`;--> statement-breakpoint
+CREATE UNIQUE INDEX `uq_treasury_statement_matched_movement` ON `treasury_statement_transactions` (`matched_movement_type`,`matched_movement_id`);
