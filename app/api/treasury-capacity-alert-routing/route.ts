@@ -1,8 +1,14 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { GET as synchronizeCapacityAlerts } from "@/app/api/treasury-capacity-alerts/route";
 import { listTreasuryAlertUsers } from "@/app/treasury-alert-assignment";
 import { ensureTreasuryCapacityAlertTables } from "@/app/treasury-capacity-alerts-runtime";
+import {
+  routingFeedbackInfluence,
+  routingFeedbackReasons,
+  type RoutingFeedbackReason,
+  type RoutingFeedbackValue,
+} from "@/app/treasury-capacity-routing-feedback";
 import { ensureTreasuryCapacityRoutingSettings } from "@/app/treasury-capacity-smart-routing-runtime";
 import {
   ensureTreasuryRoutingUsers,
@@ -14,7 +20,10 @@ import {
 import { requireTreasuryAccess } from "@/app/treasury-runtime";
 import { getDb } from "@/db";
 import { treasuryAlertOccurrences, treasuryClosingTasks } from "@/db/treasury-closing-schema";
-import { treasuryCapacityRoutingSettings } from "@/db/treasury-capacity-routing-schema";
+import {
+  treasuryCapacityRoutingFeedback,
+  treasuryCapacityRoutingSettings,
+} from "@/db/treasury-capacity-routing-schema";
 import {
   treasuryCapacityAlertAssignmentHistory,
   treasuryCapacityAlertAudit,
@@ -36,9 +45,15 @@ type Candidate = {
   skillSummary: string;
   loadPoints: number;
   explicitCoverage: boolean;
+  baseScore: number;
   score: number;
   autoEligible: boolean;
   reason: string;
+  feedbackAdjustment: number;
+  feedbackPositive: number;
+  feedbackNegative: number;
+  feedbackExplanation: string | null;
+  feedbackBlockedAuto: boolean;
 };
 type Suggestion = Candidate & { confidence: "high" | "medium" };
 
@@ -120,6 +135,8 @@ function scoreCandidates(args: {
   schedules: Array<typeof treasuryRoutingSchedules.$inferSelect>;
   loadMap: Map<number, number>;
   minimumSkillLevel: number;
+  feedbackLearningEnabled: boolean;
+  feedbackRows: Array<typeof treasuryCapacityRoutingFeedback.$inferSelect>;
 }) {
   const profileByUser = new Map(args.profiles.map((row) => [row.userId, row]));
   const requiredDomain = (treasuryRoutingDomains as readonly string[]).includes(args.occurrence.domain ?? "")
@@ -171,7 +188,16 @@ function scoreCandidates(args: {
       autoEligible = skillLevel >= args.minimumSkillLevel;
     }
 
-    const score = Number((loadPoints * 0.6 + availabilityPenalty + skillPenalty + roleBonus + coverageBonus).toFixed(2));
+    const learning = routingFeedbackInfluence(
+      args.feedbackRows,
+      args.occurrence,
+      user.id,
+      args.feedbackLearningEnabled,
+    );
+    const baseScore = Number((loadPoints * 0.6 + availabilityPenalty + skillPenalty + roleBonus + coverageBonus).toFixed(2));
+    const score = Number((baseScore + learning.adjustment).toFixed(2));
+    if (learning.recentHardNegative) autoEligible = false;
+
     candidates.push({
       userId: user.id,
       name: user.name,
@@ -182,9 +208,15 @@ function scoreCandidates(args: {
       skillSummary,
       loadPoints,
       explicitCoverage,
+      baseScore,
       score,
       autoEligible,
       reason: candidateReason({ availability, skillSummary, loadPoints, explicitCoverage }),
+      feedbackAdjustment: learning.adjustment,
+      feedbackPositive: learning.positive,
+      feedbackNegative: learning.negative,
+      feedbackExplanation: learning.explanation,
+      feedbackBlockedAuto: learning.recentHardNegative,
     });
   }
 
@@ -233,7 +265,7 @@ async function assignSmart(args: {
     occurrenceId: args.occurrence.id,
     action: args.source === "smart_auto" ? "smart_auto_assigned" : "smart_suggestion_applied",
     performedBy: args.performedBy,
-    note: `Responsável definido pelo roteamento inteligente: ${args.candidate.name}. Critério: ${args.candidate.reason}`,
+    note: `Responsável definido pelo roteamento inteligente: ${args.candidate.name}. Critério: ${args.candidate.reason}${args.candidate.feedbackExplanation ? ` Aprendizado: ${args.candidate.feedbackExplanation}.` : ""}`,
   });
   return updated;
 }
@@ -254,13 +286,14 @@ async function buildRoutingState(applyAutomatic: boolean) {
     .where(eq(treasuryCapacityRoutingSettings.id, 1)).limit(1);
   if (!settings) throw new Error("Configuração de roteamento preventivo não encontrada.");
 
-  const [profiles, skillRows, schedules, executive, tasks, preventives] = await Promise.all([
+  const [profiles, skillRows, schedules, executive, tasks, preventives, feedbackRows] = await Promise.all([
     db.select().from(treasuryRoutingProfiles),
     db.select().from(treasuryRoutingSkills),
     db.select().from(treasuryRoutingSchedules),
     db.select().from(treasuryAlertOccurrences),
     db.select().from(treasuryClosingTasks),
     db.select().from(treasuryCapacityAlertOccurrences),
+    db.select().from(treasuryCapacityRoutingFeedback),
   ]);
   const skillsByUser = new Map<number, SkillMap>(users.map((user) => [
     user.id,
@@ -288,6 +321,8 @@ async function buildRoutingState(applyAutomatic: boolean) {
       schedules,
       loadMap,
       minimumSkillLevel: Number(settings.minimumSkillLevel),
+      feedbackLearningEnabled: Boolean(settings.feedbackLearningEnabled),
+      feedbackRows,
     });
     if (applyAutomatic && settings.autoAssignmentEnabled && !row.assignedUserId && scored.suggestion?.confidence === "high") {
       row = await assignSmart({
@@ -318,10 +353,15 @@ async function buildRoutingState(applyAutomatic: boolean) {
     });
   }
 
+  const feedbackHistory = [...feedbackRows]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    .slice(0, 40);
+
   return {
     settings,
     items,
     autoAssigned,
+    feedbackHistory,
     summary: {
       activeUnprepared: items.length,
       assigned: items.filter((item) => item.assignedUserId).length,
@@ -330,6 +370,9 @@ async function buildRoutingState(applyAutomatic: boolean) {
       mediumConfidence: items.filter((item) => !item.assignedUserId && item.suggestion?.confidence === "medium").length,
       noEligibleCandidate: items.filter((item) => !item.assignedUserId && !item.suggestion).length,
       autoAssigned,
+      feedbackTotal: feedbackRows.length,
+      feedbackPositive: feedbackRows.filter((row) => row.feedback === "positive").length,
+      feedbackNegative: feedbackRows.filter((row) => row.feedback === "negative").length,
     },
   };
 }
@@ -365,6 +408,7 @@ export async function PATCH(request: Request) {
       const [settings] = await db.update(treasuryCapacityRoutingSettings).set({
         autoAssignmentEnabled: Boolean(payload.autoAssignmentEnabled),
         minimumSkillLevel,
+        feedbackLearningEnabled: Boolean(payload.feedbackLearningEnabled),
         updatedBy: auth.email,
         updatedAt: now,
       }).where(eq(treasuryCapacityRoutingSettings.id, 1)).returning();
@@ -389,6 +433,78 @@ export async function PATCH(request: Request) {
         performedBy: auth.email,
       });
       return Response.json({ occurrence: updated, suggestion: item.suggestion });
+    }
+
+    if (action === "feedback") {
+      const occurrenceId = Number(payload.occurrenceId);
+      const userId = Number(payload.userId);
+      const feedback = String(payload.feedback ?? "") as RoutingFeedbackValue;
+      const reasonCode = String(payload.reasonCode ?? "") as RoutingFeedbackReason;
+      const note = String(payload.note ?? "").trim().slice(0, 1000) || null;
+      if (!Number.isInteger(occurrenceId) || occurrenceId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+        return Response.json({ error: "Ocorrência ou candidato inválido." }, { status: 400 });
+      }
+      if (!(["positive", "negative"] as const).includes(feedback)) {
+        return Response.json({ error: "Feedback deve ser positivo ou negativo." }, { status: 400 });
+      }
+      if (!(routingFeedbackReasons as readonly string[]).includes(reasonCode)) {
+        return Response.json({ error: "Motivo de feedback inválido." }, { status: 400 });
+      }
+
+      const state = await buildRoutingState(false);
+      const item = state.items.find((row) => row.occurrenceId === occurrenceId);
+      if (!item) return Response.json({ error: "Preventivo ativo e não preparado não encontrado." }, { status: 404 });
+      const candidates = [item.suggestion, ...(item.alternatives ?? [])].filter(Boolean) as Candidate[];
+      const candidate = candidates.find((row) => row.userId === userId);
+      if (!candidate) return Response.json({ error: "O candidato informado não está entre as recomendações atuais." }, { status: 409 });
+      const [occurrence] = await db.select().from(treasuryCapacityAlertOccurrences)
+        .where(eq(treasuryCapacityAlertOccurrences.id, occurrenceId)).limit(1);
+      if (!occurrence) return Response.json({ error: "Preventivo não encontrado." }, { status: 404 });
+
+      const [existing] = await db.select().from(treasuryCapacityRoutingFeedback).where(and(
+        eq(treasuryCapacityRoutingFeedback.occurrenceId, occurrenceId),
+        eq(treasuryCapacityRoutingFeedback.userId, userId),
+        eq(treasuryCapacityRoutingFeedback.performedBy, auth.email),
+      )).limit(1);
+
+      let saved;
+      if (existing) {
+        [saved] = await db.update(treasuryCapacityRoutingFeedback).set({
+          candidateName: candidate.name,
+          candidateEmail: candidate.email,
+          alertType: occurrence.alertType,
+          domain: occurrence.domain,
+          feedback,
+          reasonCode,
+          note,
+          candidateScore: candidate.score,
+          updatedAt: now,
+        }).where(eq(treasuryCapacityRoutingFeedback.id, existing.id)).returning();
+      } else {
+        [saved] = await db.insert(treasuryCapacityRoutingFeedback).values({
+          occurrenceId,
+          userId,
+          candidateName: candidate.name,
+          candidateEmail: candidate.email,
+          alertType: occurrence.alertType,
+          domain: occurrence.domain,
+          feedback,
+          reasonCode,
+          note,
+          candidateScore: candidate.score,
+          performedBy: auth.email,
+          createdAt: now,
+          updatedAt: now,
+        }).returning();
+      }
+
+      await db.insert(treasuryCapacityAlertAudit).values({
+        occurrenceId,
+        action: feedback === "positive" ? "smart_feedback_positive" : "smart_feedback_negative",
+        performedBy: auth.email,
+        note: `${feedback === "positive" ? "Boa sugestão" : "Pessoa inadequada para esta sugestão"}: ${candidate.name}. Motivo: ${reasonCode}${note ? `. ${note}` : ""}`,
+      });
+      return Response.json({ feedback: saved });
     }
 
     return Response.json({ error: "Ação inválida." }, { status: 400 });
