@@ -35,7 +35,6 @@ type Movement = {
 };
 
 type Horizon = "30" | "60" | "90";
-
 type AccountForm = {
   name: string;
   bankName: string;
@@ -50,38 +49,23 @@ type AccountForm = {
 };
 
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
-const todayKey = () => new Date().toISOString().slice(0, 10);
-const addDays = (days: number) => {
+const localDateKey = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const addDaysKey = (days: number) => {
   const date = new Date();
   date.setHours(12, 0, 0, 0);
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date);
 };
 const shortDate = (value: string | null) => value ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`)) : "Sem data";
 const accountTypeLabel: Record<string, string> = { checking: "Conta corrente", savings: "Poupança", cash: "Caixa", investment: "Investimento", other: "Outra" };
-const emptyForm = (): AccountForm => ({
-  name: "",
-  bankName: "",
-  accountType: "checking",
-  agency: "",
-  accountNumber: "",
-  openingBalance: "0",
-  openingDate: todayKey(),
-  currentBalance: "0",
-  balanceDate: todayKey(),
-  notes: "",
-});
+const emptyForm = (): AccountForm => ({ name: "", bankName: "", accountType: "checking", agency: "", accountNumber: "", openingBalance: "0", openingDate: localDateKey(), currentBalance: "0", balanceDate: localDateKey(), notes: "" });
 
 function projectedFor(account: BankAccount, movements: Movement[], days: number) {
-  const today = todayKey();
-  const limit = addDays(days);
+  const today = localDateKey();
+  const limit = addDaysKey(days);
   const assigned = movements.filter((item) => item.bankAccountId === account.id && item.scheduledAmount > 0);
-  const inflow = assigned
-    .filter((item) => item.type === "inflow" && item.dueDate && item.dueDate >= today && item.dueDate <= limit)
-    .reduce((sum, item) => sum + item.scheduledAmount, 0);
-  const outflow = assigned
-    .filter((item) => item.type === "outflow" && item.dueDate && item.dueDate <= limit)
-    .reduce((sum, item) => sum + item.scheduledAmount, 0);
+  const inflow = assigned.filter((item) => item.type === "inflow" && item.dueDate && item.dueDate >= today && item.dueDate <= limit).reduce((sum, item) => sum + item.scheduledAmount, 0);
+  const outflow = assigned.filter((item) => item.type === "outflow" && item.dueDate && item.dueDate <= limit).reduce((sum, item) => sum + item.scheduledAmount, 0);
   return { inflow, outflow, projected: account.currentBalance + inflow - outflow };
 }
 
@@ -135,19 +119,15 @@ export function TreasuryDashboard() {
     }
   }
 
-  useEffect(() => {
-    if (target && authorized === null) void refresh(true);
-  }, [target, authorized]);
-  useEffect(() => {
-    if (open) void refresh();
-  }, [open]);
+  useEffect(() => { if (target && authorized === null) void refresh(true); }, [target, authorized]);
+  useEffect(() => { if (open) void refresh(); }, [open]);
 
   const activeAccounts = useMemo(() => accounts.filter((item) => item.active), [accounts]);
   const selectedAccount = accountId ? accounts.find((item) => item.id === Number(accountId)) ?? null : null;
 
   const summary = useMemo(() => {
-    const today = todayKey();
-    const limit = addDays(Number(horizon));
+    const today = localDateKey();
+    const limit = addDaysKey(Number(horizon));
     const scoped = selectedAccount ? movements.filter((item) => item.bankAccountId === selectedAccount.id) : movements;
     const currentBalance = selectedAccount ? selectedAccount.currentBalance : activeAccounts.reduce((sum, item) => sum + item.currentBalance, 0);
     const inflow = scoped.filter((item) => item.type === "inflow" && item.scheduledAmount > 0 && item.dueDate && item.dueDate >= today && item.dueDate <= limit).reduce((sum, item) => sum + item.scheduledAmount, 0);
@@ -155,14 +135,15 @@ export function TreasuryDashboard() {
     const overdueReceivables = scoped.filter((item) => item.type === "inflow" && item.scheduledAmount > 0 && item.dueDate && item.dueDate < today).reduce((sum, item) => sum + item.scheduledAmount, 0);
     const openMovements = movements.filter((item) => item.scheduledAmount > 0);
     const allocated = openMovements.filter((item) => item.bankAccountId !== null).length;
+    const unassigned = openMovements.filter((item) => !item.bankAccountId);
     return {
       currentBalance,
       inflow,
       outflow,
       projected: currentBalance + inflow - outflow,
       overdueReceivables,
-      unassignedCount: openMovements.length - allocated,
-      unassignedAmount: openMovements.filter((item) => !item.bankAccountId).reduce((sum, item) => sum + item.scheduledAmount, 0),
+      unassignedCount: unassigned.length,
+      unassignedAmount: unassigned.reduce((sum, item) => sum + item.scheduledAmount, 0),
       coverage: openMovements.length ? allocated / openMovements.length * 100 : 100,
     };
   }, [movements, activeAccounts, selectedAccount, horizon]);
@@ -175,35 +156,26 @@ export function TreasuryDashboard() {
       if (!a.dueDate) return 1;
       if (!b.dueDate) return -1;
       return a.dueDate.localeCompare(b.dueDate);
-    })
-    .slice(0, 30), [movements, showAllMovements]);
+    }).slice(0, 30), [movements, showAllMovements]);
 
   async function saveAccount() {
-    const body = {
-      ...(editingId ? { id: editingId } : {}),
-      ...form,
-      openingBalance: Number(form.openingBalance),
-      currentBalance: Number(form.currentBalance),
-    };
+    const body = { ...(editingId ? { id: editingId } : {}), ...form, openingBalance: Number(form.openingBalance), currentBalance: Number(form.currentBalance) };
     if (!form.name.trim() || !Number.isFinite(body.openingBalance) || !Number.isFinite(body.currentBalance)) {
       setMessage("Informe nome e saldos válidos para a conta.");
       return;
     }
     setLoading(true);
     try {
-      const response = await fetch("/api/treasury-accounts", {
-        method: editingId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const response = await fetch("/api/treasury-accounts", { method: editingId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) {
         setMessage(result.error ?? "Não foi possível salvar a conta.");
         return;
       }
+      const wasEditing = editingId !== null;
       setEditingId(null);
       setForm(emptyForm());
-      setMessage(editingId ? "Conta atualizada." : "Conta cadastrada.");
+      setMessage(wasEditing ? "Conta atualizada." : "Conta cadastrada.");
       await refresh(true);
     } finally {
       setLoading(false);
@@ -212,28 +184,13 @@ export function TreasuryDashboard() {
 
   function editAccount(account: BankAccount) {
     setEditingId(account.id);
-    setForm({
-      name: account.name,
-      bankName: account.bankName ?? "",
-      accountType: account.accountType,
-      agency: account.agency ?? "",
-      accountNumber: account.accountNumber ?? "",
-      openingBalance: String(account.openingBalance),
-      openingDate: account.openingDate,
-      currentBalance: String(account.currentBalance),
-      balanceDate: account.balanceDate,
-      notes: account.notes ?? "",
-    });
+    setForm({ name: account.name, bankName: account.bankName ?? "", accountType: account.accountType, agency: account.agency ?? "", accountNumber: account.accountNumber ?? "", openingBalance: String(account.openingBalance), openingDate: account.openingDate, currentBalance: String(account.currentBalance), balanceDate: account.balanceDate, notes: account.notes ?? "" });
   }
 
   async function toggleAccount(account: BankAccount) {
     setLoading(true);
     try {
-      const response = await fetch("/api/treasury-accounts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: account.id, active: !account.active }),
-      });
+      const response = await fetch("/api/treasury-accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, active: !account.active }) });
       if (!response.ok) {
         const result = await response.json().catch(() => ({})) as { error?: string };
         setMessage(result.error ?? "Não foi possível alterar a conta.");
@@ -249,11 +206,7 @@ export function TreasuryDashboard() {
   async function allocate(movement: Movement, nextAccountId: string) {
     setLoading(true);
     try {
-      const response = await fetch("/api/treasury-allocations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ movementType: movement.source, movementId: movement.movementId, bankAccountId: nextAccountId || null }),
-      });
+      const response = await fetch("/api/treasury-allocations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ movementType: movement.source, movementId: movement.movementId, bankAccountId: nextAccountId || null }) });
       if (!response.ok) {
         const result = await response.json().catch(() => ({})) as { error?: string };
         setMessage(result.error ?? "Não foi possível classificar o movimento.");
@@ -268,14 +221,7 @@ export function TreasuryDashboard() {
   if (!target || authorized !== true) return null;
 
   return <>
-    {createPortal(
-      <button type="button" className="treasury-trigger" onClick={() => setOpen(true)}>
-        <span>TESOURARIA</span>
-        <strong>{money(summary.projected)}</strong>
-        <small>saldo projetado · {horizon} dias</small>
-      </button>, target,
-    )}
-
+    {createPortal(<button type="button" className="treasury-trigger" onClick={() => setOpen(true)}><span>TESOURARIA</span><strong>{money(summary.projected)}</strong><small>saldo projetado · {horizon} dias</small></button>, target)}
     {open ? <div className="treasury-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
       <section className="treasury-dashboard" role="dialog" aria-modal="true" aria-label="Tesouraria e contas bancárias">
         <header className="treasury-header">
@@ -283,13 +229,11 @@ export function TreasuryDashboard() {
           <div className="treasury-actions">
             <label><span>Horizonte</span><select value={horizon} onChange={(event) => setHorizon(event.target.value as Horizon)}><option value="30">30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option></select></label>
             <label><span>Visão</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">Consolidado</option>{activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-            <button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Atualizando…" : "Atualizar"}</button>
-            <button type="button" className="close" onClick={() => setOpen(false)}>Fechar</button>
+            <button type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Atualizando…" : "Atualizar"}</button><button type="button" className="close" onClick={() => setOpen(false)}>Fechar</button>
           </div>
         </header>
 
         {message ? <div className="treasury-message">{message}</div> : null}
-
         <div className="treasury-kpis">
           <article><span>Saldo atual informado</span><strong>{money(summary.currentBalance)}</strong><small>{selectedAccount ? `posição de ${shortDate(selectedAccount.balanceDate)}` : `${activeAccounts.length} conta(s) ativa(s)`}</small></article>
           <article><span>Entradas projetadas</span><strong>{money(summary.inflow)}</strong><small>a vencer nos próximos {horizon} dias</small></article>
