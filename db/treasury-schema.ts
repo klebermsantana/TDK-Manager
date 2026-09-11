@@ -82,7 +82,29 @@ export const treasuryStatementTransactions = sqliteTable(
   (table) => [
     uniqueIndex("uq_treasury_statement_external").on(table.importId, table.externalId),
     index("idx_treasury_statement_transaction_account_date").on(table.bankAccountId, table.transactionDate),
-    uniqueIndex("uq_treasury_statement_matched_movement").on(table.matchedMovementType, table.matchedMovementId),
+    index("idx_treasury_statement_legacy_match").on(table.matchedMovementType, table.matchedMovementId),
+  ],
+);
+
+export const treasuryReconciliationAllocations = sqliteTable(
+  "treasury_reconciliation_allocations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    statementTransactionId: integer("statement_transaction_id").notNull().references(() => treasuryStatementTransactions.id, { onDelete: "cascade" }),
+    bankAccountId: integer("bank_account_id").notNull().references(() => treasuryBankAccounts.id, { onDelete: "cascade" }),
+    movementType: text("movement_type").notNull(),
+    movementId: integer("movement_id").notNull(),
+    allocatedAmount: real("allocated_amount").notNull(),
+    matchedBy: text("matched_by").notNull(),
+    matchedAt: text("matched_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("uq_treasury_reconciliation_allocation_pair").on(table.statementTransactionId, table.movementType, table.movementId),
+    index("idx_treasury_reconciliation_allocation_transaction").on(table.statementTransactionId),
+    index("idx_treasury_reconciliation_allocation_movement").on(table.movementType, table.movementId),
+    index("idx_treasury_reconciliation_allocation_account").on(table.bankAccountId, table.createdAt),
   ],
 );
 
@@ -105,8 +127,9 @@ export const treasuryReconciliationSettlements = sqliteTable(
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("uq_treasury_active_settlement_transaction").on(table.statementTransactionId),
-    uniqueIndex("uq_treasury_active_settlement_movement").on(table.movementType, table.movementId),
+    uniqueIndex("uq_treasury_active_settlement_pair").on(table.statementTransactionId, table.movementType, table.movementId),
+    index("idx_treasury_active_settlement_transaction").on(table.statementTransactionId),
+    index("idx_treasury_active_settlement_movement").on(table.movementType, table.movementId),
     index("idx_treasury_active_settlement_account").on(table.bankAccountId, table.createdAt),
   ],
 );
