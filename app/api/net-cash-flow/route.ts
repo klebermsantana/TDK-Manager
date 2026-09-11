@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { requirePermission } from "@/app/authorization";
 import { getDb } from "@/db";
-import { billings, payables, receivables, sales, suppliers } from "@/db/schema";
+import { billings, companies, payables, receivables, sales, suppliers } from "@/db/schema";
 
 export async function GET() {
   const receivablesDenied = await requirePermission("receivables");
@@ -52,7 +52,7 @@ export async function GET() {
         .select({
           id: payables.id,
           supplierName: suppliers.name,
-          companyName: sales.companyName,
+          companyName: companies.name,
           project: payables.project,
           groupNumber: payables.groupNumber,
           reference: payables.reference,
@@ -70,7 +70,7 @@ export async function GET() {
         })
         .from(payables)
         .innerJoin(suppliers, eq(payables.supplierId, suppliers.id))
-        .leftJoin(sales, eq(payables.companyId, sales.id)),
+        .leftJoin(companies, eq(payables.companyId, companies.id)),
     ]);
 
     const billingIdsWithInstallments = new Set(receivableRows.map((row) => row.billingId));
@@ -121,7 +121,7 @@ export async function GET() {
         source: "payable" as const,
         document: row.groupNumber,
         counterpart: row.supplierName,
-        detail: `${row.description}${row.installmentCount > 1 ? ` · Parcela ${row.installmentNumber}/${row.installmentCount}` : ""}`,
+        detail: `${row.description}${row.companyName ? ` · ${row.companyName}` : row.project ? ` · ${row.project}` : ""}${row.installmentCount > 1 ? ` · Parcela ${row.installmentNumber}/${row.installmentCount}` : ""}`,
         dueDate: row.dueDate,
         scheduledAmount: Math.max(0, Number(row.amount) - Number(row.paidAmount)),
         realizedAmount: Math.max(0, Number(row.paidAmount)),
