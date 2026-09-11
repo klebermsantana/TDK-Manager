@@ -253,6 +253,13 @@
       "when": 1789079834017,
       "tag": "0035_minor_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1789090406543,
+      "tag": "0036_crazy_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }
