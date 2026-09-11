@@ -16,6 +16,7 @@ import "./service-call-financial-goals-section.css";
 import "./service-call-financial-forecast-section.css";
 import "./cash-forecast-dashboard.css";
 import "./net-cash-flow-dashboard.css";
+import "./treasury-executive-dashboard.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
@@ -39,6 +40,7 @@ import { ServiceCallFinancialGoalsSection } from "./service-call-financial-goals
 import { ServiceCallFinancialForecastSection } from "./service-call-financial-forecast-section";
 import { CashForecastDashboard } from "./cash-forecast-dashboard";
 import { NetCashFlowDashboard } from "./net-cash-flow-dashboard";
+import { TreasuryExecutiveDashboard } from "./treasury-executive-dashboard";
 import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
 import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
@@ -80,6 +82,7 @@ export default function RootLayout({
         <ServiceCallFinancialForecastSection />
         <CashForecastDashboard />
         <NetCashFlowDashboard />
+        <TreasuryExecutiveDashboard />
         <TreasuryDashboard />
         <TreasuryReconciliationDashboard />
         <TreasuryReconciliationSplitDashboard />
