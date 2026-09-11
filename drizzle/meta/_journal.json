@@ -281,6 +281,13 @@
       "when": 1789131546557,
       "tag": "0039_strange_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1789134027833,
+      "tag": "0040_clumsy_rachel_grey",
+      "breakpoints": true
     }
   ]
 }
