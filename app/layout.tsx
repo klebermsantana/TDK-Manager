@@ -26,6 +26,7 @@ import "./treasury-routing-profiles-dashboard.css";
 import "./treasury-routing-schedules-dashboard.css";
 import "./treasury-capacity-forecast-dashboard.css";
 import "./treasury-capacity-alerts-dashboard.css";
+import "./treasury-capacity-smart-routing-dashboard.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
@@ -59,6 +60,7 @@ import { TreasuryRoutingProfilesDashboard } from "./treasury-routing-profiles-da
 import { TreasuryRoutingSchedulesDashboard } from "./treasury-routing-schedules-dashboard";
 import { TreasuryCapacityForecastDashboard } from "./treasury-capacity-forecast-dashboard";
 import { TreasuryCapacityAlertsDashboard } from "./treasury-capacity-alerts-dashboard";
+import { TreasuryCapacitySmartRoutingDashboard } from "./treasury-capacity-smart-routing-dashboard";
 import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
 import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
@@ -110,6 +112,7 @@ export default function RootLayout({
         <TreasuryRoutingSchedulesDashboard />
         <TreasuryCapacityForecastDashboard />
         <TreasuryCapacityAlertsDashboard />
+        <TreasuryCapacitySmartRoutingDashboard />
         <TreasuryDashboard />
         <TreasuryReconciliationDashboard />
         <TreasuryReconciliationSplitDashboard />
