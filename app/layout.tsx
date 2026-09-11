@@ -20,6 +20,7 @@ import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
 import "./treasury-reconciliation-split-dashboard.css";
 import "./treasury-reconciliation-smart-suggestions.css";
+import "./financial-ledger-dashboard.css";
 import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
@@ -38,6 +39,7 @@ import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
 import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
 import { TreasuryReconciliationSmartSuggestions } from "./treasury-reconciliation-smart-suggestions";
+import { FinancialLedgerDashboard } from "./financial-ledger-dashboard";
 import { TeamProfitabilityPermissionManager } from "./team-profitability-permission-manager";
 
 export const metadata: Metadata = {
@@ -74,6 +76,7 @@ export default function RootLayout({
         <TreasuryReconciliationDashboard />
         <TreasuryReconciliationSplitDashboard />
         <TreasuryReconciliationSmartSuggestions />
+        <FinancialLedgerDashboard />
         <TeamProfitabilityPermissionManager />
         {children}
       </body>
