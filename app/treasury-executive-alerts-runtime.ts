@@ -46,6 +46,25 @@ export async function ensureTreasuryAlertSettings() {
   `));
 
   await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_alert_assignment_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alert_type TEXT NOT NULL UNIQUE,
+      assigned_user_id INTEGER,
+      assigned_name TEXT,
+      assigned_email TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_by TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_assignment_rule_type ON treasury_alert_assignment_rules(alert_type, active)`));
+  for (const type of ["negative_forecast", "critical_task", "reconciliation", "closing_overdue"]) {
+    await db.run(sql.raw(`INSERT OR IGNORE INTO treasury_alert_assignment_rules (alert_type, active) VALUES ('${type}', 1)`));
+  }
+
+  await db.run(sql.raw(`
     CREATE TABLE IF NOT EXISTS treasury_alert_occurrences (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       alert_key TEXT NOT NULL,
@@ -66,18 +85,30 @@ export async function ensureTreasuryAlertSettings() {
       acknowledgement_note TEXT,
       ack_escalated_at TEXT,
       resolution_escalated_at TEXT,
+      assigned_user_id INTEGER,
+      assigned_name TEXT,
+      assigned_email TEXT,
+      assigned_at TEXT,
+      assignment_source TEXT,
       resolved_at TEXT,
       resolution_reason TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (bank_account_id) REFERENCES treasury_bank_accounts(id) ON DELETE SET NULL
+      FOREIGN KEY (bank_account_id) REFERENCES treasury_bank_accounts(id) ON DELETE SET NULL,
+      FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL
     )
   `));
   await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN ack_escalated_at TEXT");
   await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN resolution_escalated_at TEXT");
+  await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN assigned_name TEXT");
+  await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN assigned_email TEXT");
+  await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN assigned_at TEXT");
+  await addColumnIfMissing("ALTER TABLE treasury_alert_occurrences ADD COLUMN assignment_source TEXT");
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_occurrence_key_status ON treasury_alert_occurrences(alert_key, status)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_occurrence_status_severity ON treasury_alert_occurrences(status, severity)`));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_occurrence_first_seen ON treasury_alert_occurrences(first_seen_at)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_occurrence_assignee ON treasury_alert_occurrences(assigned_user_id, status)`));
 
   await db.run(sql.raw(`
     CREATE TABLE IF NOT EXISTS treasury_alert_occurrence_audit (
@@ -91,4 +122,23 @@ export async function ensureTreasuryAlertSettings() {
     )
   `));
   await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_occurrence_audit_occurrence ON treasury_alert_occurrence_audit(occurrence_id, created_at)`));
+
+  await db.run(sql.raw(`
+    CREATE TABLE IF NOT EXISTS treasury_alert_assignment_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      occurrence_id INTEGER NOT NULL,
+      user_id INTEGER,
+      assigned_name TEXT NOT NULL,
+      assigned_email TEXT NOT NULL,
+      assignment_source TEXT NOT NULL,
+      assigned_by TEXT NOT NULL,
+      assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      unassigned_at TEXT,
+      unassigned_by TEXT,
+      FOREIGN KEY (occurrence_id) REFERENCES treasury_alert_occurrences(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_assignment_history_occurrence ON treasury_alert_assignment_history(occurrence_id, assigned_at)`));
+  await db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_treasury_alert_assignment_history_user ON treasury_alert_assignment_history(user_id, unassigned_at)`));
 }
