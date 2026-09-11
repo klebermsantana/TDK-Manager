@@ -78,16 +78,6 @@ export async function GET(request: Request) {
         .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.id - b.id);
       const statementNet = round2(accountTransactions.reduce((sum, transaction) => sum + Number(transaction.amount), 0));
 
-      const closingTransactions = transactions
-        .filter((transaction) => transaction.bankAccountId === account.id && transaction.transactionDate <= requestedDate)
-        .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || b.id - a.id);
-      const balanceTransaction = closingTransactions.find((transaction) => transaction.balance !== null && Number.isFinite(Number(transaction.balance))) ?? null;
-      const statementBalance = balanceTransaction ? round2(Number(balanceTransaction.balance)) : null;
-      const laterThanBalance = balanceTransaction
-        ? closingTransactions.filter((transaction) => transaction.transactionDate > balanceTransaction.transactionDate)
-        : closingTransactions;
-      const statementBalanceCurrent = Boolean(balanceTransaction && laterThanBalance.length === 0);
-
       let unallocatedAmount = 0;
       let unallocatedCount = 0;
       let fullyAllocatedCount = 0;
@@ -112,6 +102,25 @@ export async function GET(request: Request) {
         .sort((a, b) => (b.periodEnd ?? "").localeCompare(a.periodEnd ?? "") || b.id - a.id)[0] ?? null;
       const statementCovered = Boolean(latestImport?.periodEnd && latestImport.periodEnd >= requestedDate);
 
+      const closingTransactions = transactions
+        .filter((transaction) => transaction.bankAccountId === account.id && transaction.transactionDate <= requestedDate)
+        .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || b.id - a.id);
+      const balanceTransaction = closingTransactions.find((transaction) => transaction.balance !== null && Number.isFinite(Number(transaction.balance))) ?? null;
+      const laterThanExplicitBalance = balanceTransaction
+        ? closingTransactions.filter((transaction) => transaction.transactionDate > balanceTransaction.transactionDate)
+        : closingTransactions;
+      const explicitBalanceCurrent = Boolean(balanceTransaction && laterThanExplicitBalance.length === 0);
+      const explicitStatementBalance = explicitBalanceCurrent ? round2(Number(balanceTransaction!.balance)) : null;
+      const movementStatementBalance = anchorValid && statementCovered
+        ? round2(Number(account.currentBalance) + statementNet)
+        : null;
+      const statementBalance = explicitStatementBalance ?? movementStatementBalance;
+      const statementBalanceSource = explicitStatementBalance !== null ? "statement" as const : movementStatementBalance !== null ? "movement" as const : null;
+      const statementBalanceDate = explicitStatementBalance !== null
+        ? balanceTransaction?.transactionDate ?? null
+        : movementStatementBalance !== null ? requestedDate : balanceTransaction?.transactionDate ?? null;
+      const statementBalanceCurrent = statementBalance !== null && statementCovered;
+
       const unknownEvents = resolvedEvents.filter((event) =>
         event.resolvedBankAccountId === null &&
         event.eventDate > account.balanceDate &&
@@ -125,8 +134,8 @@ export async function GET(request: Request) {
       if (!anchorValid) issues.push("A data de corte é anterior ao saldo-base informado da conta.");
       if (!latestImport) issues.push("Nenhum extrato foi importado para esta conta.");
       else if (!statementCovered) issues.push(`O último extrato cobre somente até ${latestImport.periodEnd ?? "data não informada"}.`);
-      if (statementBalance === null) issues.push("O extrato não possui saldo bancário utilizável.");
-      else if (!statementBalanceCurrent) issues.push("Há lançamentos posteriores ao último saldo informado pelo extrato.");
+      if (statementBalance === null) issues.push("Não há extrato suficiente para calcular o saldo bancário na data de corte.");
+      if (balanceTransaction && !explicitBalanceCurrent && statementBalanceSource === "movement") issues.push("O saldo explícito do arquivo é anterior aos últimos lançamentos; a conferência usa a movimentação do extrato desde o saldo-base.");
       if (closingDifference !== null && !centsZero(closingDifference)) issues.push(`Diferença de fechamento de ${closingDifference.toFixed(2)} entre extrato e TDK.`);
       if (unallocatedAmount > 0.01) issues.push(`${unallocatedCount} lançamento(s) do extrato ainda possuem valor sem conciliação.`);
       if (unknownEvents.length) issues.push(`${unknownEvents.length} evento(s) do razão no período ainda não têm conta bancária definida.`);
@@ -146,7 +155,8 @@ export async function GET(request: Request) {
         statementNet,
         statementTransactionCount: accountTransactions.length,
         statementBalance,
-        statementBalanceDate: balanceTransaction?.transactionDate ?? null,
+        statementBalanceSource,
+        statementBalanceDate,
         statementBalanceCurrent,
         latestImportPeriodEnd: latestImport?.periodEnd ?? null,
         statementCovered,
