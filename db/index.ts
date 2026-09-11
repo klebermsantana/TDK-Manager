@@ -4,12 +4,14 @@ import * as coreSchema from "./schema";
 import * as slaSchema from "./sla-schema";
 import * as profitabilitySchema from "./profitability-schema";
 import * as goalScopeSchema from "./goal-scope-schema";
+import * as treasurySchema from "./treasury-schema";
 
 const schema = {
   ...coreSchema,
   ...slaSchema,
   ...profitabilitySchema,
   ...goalScopeSchema,
+  ...treasurySchema,
 };
 
 export function getDb() {
