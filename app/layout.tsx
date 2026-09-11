@@ -18,6 +18,7 @@ import "./cash-forecast-dashboard.css";
 import "./net-cash-flow-dashboard.css";
 import "./treasury-dashboard.css";
 import "./treasury-reconciliation-dashboard.css";
+import "./treasury-reconciliation-split-dashboard.css";
 import "./team-profitability-permission-manager.css";
 import { ManagerUiPolicies } from "./manager-ui-policies";
 import { ServiceCallKanbanEnhancer } from "./service-call-kanban-enhancer";
@@ -34,6 +35,7 @@ import { CashForecastDashboard } from "./cash-forecast-dashboard";
 import { NetCashFlowDashboard } from "./net-cash-flow-dashboard";
 import { TreasuryDashboard } from "./treasury-dashboard";
 import { TreasuryReconciliationDashboard } from "./treasury-reconciliation-dashboard";
+import { TreasuryReconciliationSplitDashboard } from "./treasury-reconciliation-split-dashboard";
 import { TeamProfitabilityPermissionManager } from "./team-profitability-permission-manager";
 
 export const metadata: Metadata = {
@@ -68,6 +70,7 @@ export default function RootLayout({
         <NetCashFlowDashboard />
         <TreasuryDashboard />
         <TreasuryReconciliationDashboard />
+        <TreasuryReconciliationSplitDashboard />
         <TeamProfitabilityPermissionManager />
         {children}
       </body>
