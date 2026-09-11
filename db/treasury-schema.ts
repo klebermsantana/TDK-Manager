@@ -85,3 +85,53 @@ export const treasuryStatementTransactions = sqliteTable(
     uniqueIndex("uq_treasury_statement_matched_movement").on(table.matchedMovementType, table.matchedMovementId),
   ],
 );
+
+export const treasuryReconciliationSettlements = sqliteTable(
+  "treasury_reconciliation_settlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    statementTransactionId: integer("statement_transaction_id").notNull().references(() => treasuryStatementTransactions.id, { onDelete: "cascade" }),
+    bankAccountId: integer("bank_account_id").notNull().references(() => treasuryBankAccounts.id, { onDelete: "cascade" }),
+    movementType: text("movement_type").notNull(),
+    movementId: integer("movement_id").notNull(),
+    settlementAmount: real("settlement_amount").notNull(),
+    previousAmount: real("previous_amount").notNull(),
+    resultingAmount: real("resulting_amount").notNull(),
+    previousStatus: text("previous_status").notNull(),
+    resultingStatus: text("resulting_status").notNull(),
+    previousPaymentDate: text("previous_payment_date"),
+    paymentDate: text("payment_date").notNull(),
+    settledBy: text("settled_by").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("uq_treasury_active_settlement_transaction").on(table.statementTransactionId),
+    uniqueIndex("uq_treasury_active_settlement_movement").on(table.movementType, table.movementId),
+    index("idx_treasury_active_settlement_account").on(table.bankAccountId, table.createdAt),
+  ],
+);
+
+export const treasuryReconciliationAudit = sqliteTable(
+  "treasury_reconciliation_audit",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    statementTransactionId: integer("statement_transaction_id").notNull().references(() => treasuryStatementTransactions.id, { onDelete: "cascade" }),
+    bankAccountId: integer("bank_account_id").notNull().references(() => treasuryBankAccounts.id, { onDelete: "cascade" }),
+    movementType: text("movement_type").notNull(),
+    movementId: integer("movement_id").notNull(),
+    action: text("action").notNull(),
+    amount: real("amount").notNull(),
+    previousAmount: real("previous_amount").notNull(),
+    resultingAmount: real("resulting_amount").notNull(),
+    previousStatus: text("previous_status").notNull(),
+    resultingStatus: text("resulting_status").notNull(),
+    paymentDate: text("payment_date").notNull(),
+    performedBy: text("performed_by").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_treasury_reconciliation_audit_transaction").on(table.statementTransactionId, table.createdAt),
+    index("idx_treasury_reconciliation_audit_movement").on(table.movementType, table.movementId),
+    index("idx_treasury_reconciliation_audit_account").on(table.bankAccountId, table.createdAt),
+  ],
+);
